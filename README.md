@@ -77,6 +77,16 @@ todo --edit 5 low         # Change task #5 to LOW priority
 todo -r 1                 # Delete task #1
 todo --remove 3           # Delete task #3
 ```
+#### Checklist queues
+```bash
+todo -q "Phase 0 setup" medium < steps.txt     # One step per line
+printf 'Create venv\nRun simulator\n' | todo -q Demo high
+todo -l --queued (-q)     # Also show steps that are not revealed yet
+```
+Only the current step of a queue is shown. Marking it done with `todo -d <id>`
+reveals the next one, until the queue is complete. Leading `- `, `- [ ] `, `* ` and `1. `
+markers are stripped, so a pasted checklist works as-is.
+
 #### Daily popup with HIGH priority tasks
 ```bash
 todo -n                   # Desktop popup listing pending HIGH priority tasks

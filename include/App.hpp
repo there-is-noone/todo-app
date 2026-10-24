@@ -15,5 +15,6 @@ public:
     void handleRemove(int argc, char* argv[]);
     void handleDone(int argc, char* argv[]);
     void handleNotify(int argc, char* argv[]);
+    void handleQueue(int argc, char* argv[]);
     TodoList& todo;
 };

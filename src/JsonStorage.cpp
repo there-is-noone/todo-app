@@ -86,7 +86,10 @@ std::vector<Task> JsonStorage::load() {
             i["id"],
             i["description"],
             Task::parsePriority(i["priority"].get<std::string>()),
-            i["done"]
+            i["done"],
+            i.value("queue", std::string()),
+            i.value("step", 0),
+            i.value("hidden", false)
         ));
     }
 
@@ -97,12 +100,19 @@ void JsonStorage::save(const std::vector<Task>& Tasks) {
     std::ofstream WriteFile(FileName);
     json j=json::array();
     for (const Task& Task : Tasks) {
-        j.push_back({
+        json item={
             {"id",Task.getId()},
             {"description", Task.getDescription()},
                 {"priority", Task::priorityToString(Task.getPriority())},
             {"done",Task.isDone()}
-        });
+        };
+        // Queue fields are only written for queued tasks, so plain tasks keep the old format
+        if (Task.isQueued()) {
+            item["queue"]=Task.getQueue();
+            item["step"]=Task.getStep();
+            item["hidden"]=Task.isHidden();
+        }
+        j.push_back(item);
     }
     WriteFile<< j.dump(4);
 }

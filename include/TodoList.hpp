@@ -19,9 +19,12 @@ public:
     Task* findById(int id);
     void markTaskDone(int Id);
     void addTask(const std::string& description, Task::Priority priority);
+    void addQueue(const std::string& name, Task::Priority priority, const std::vector<std::string>& items);
+    Task* nextInQueue(const std::string& name);
+    int queueTotal(const std::string& name) const;
     void removeTask(int Id);
     void editTaskPriority(int id, Task::Priority priority);
-    std::string showAllTasks(bool showPending,bool showDone,bool filterByPriority,Task::Priority priorityFilter);
+    std::string showAllTasks(bool showPending,bool showDone,bool filterByPriority,Task::Priority priorityFilter,bool showHidden=false);
     std::vector<Task> pendingTasks(Task::Priority priority) const;
 
     int getNextId();

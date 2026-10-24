@@ -1,7 +1,8 @@
 #include "Task.hpp"
 
-Task::Task(int id, const std::string& description,Priority p, bool done): id_(id), description_(description),
-priority_(p),done_(done) {}
+Task::Task(int id, const std::string& description,Priority p, bool done,
+           const std::string& queue, int step, bool hidden): priority_(p), id_(id), description_(description),
+done_(done), queue_(queue), step_(step), hidden_(hidden) {}
 
 
 
@@ -19,6 +20,10 @@ void Task::setPriority(Priority p) {
     priority_ = p;
 }
 
+void Task::setHidden(bool is_hidden) {
+    hidden_ = is_hidden;
+}
+
 int Task::getId() const {
     return id_;
 }
@@ -30,6 +35,18 @@ bool Task::isDone() const {
 }
 Task::Priority Task::getPriority() const {
     return priority_;
+}
+std::string Task::getQueue() const {
+    return queue_;
+}
+int Task::getStep() const {
+    return step_;
+}
+bool Task::isHidden() const {
+    return hidden_;
+}
+bool Task::isQueued() const {
+    return !queue_.empty();
 }
 
 std::string Task::priorityToString(Priority p) {

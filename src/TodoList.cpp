@@ -20,12 +20,49 @@ void TodoList::markTaskDone(int Id) {
         task->setDone(true);
     else task ->setDone(false);
 
+    // Finishing a queued step reveals the next hidden step of the same queue
+    if (task->isDone() && task->isQueued()) {
+        Task* next = nextInQueue(task->getQueue());
+        if (next && next->isHidden()) {
+            next->setHidden(false);
+        }
+    }
+
     storage.save(TaskList);
 }
 void TodoList::addTask(const std::string& description,Task::Priority priority){
     Task newTask(getNextId(), description,priority, false);
     TaskList.push_back(newTask);
     storage.save(TaskList);
+}
+
+void TodoList::addQueue(const std::string& name, Task::Priority priority, const std::vector<std::string>& items) {
+    int step = 1;
+    for (const auto& item : items) {
+        TaskList.emplace_back(getNextId(), item, priority, false, name, step, step > 1);
+        step++;
+    }
+    storage.save(TaskList);
+}
+
+Task* TodoList::nextInQueue(const std::string& name) {
+    Task* next = nullptr;
+    for (auto& task : TaskList) {
+        if (task.getQueue() == name && !task.isDone()) {
+            if (!next || task.getStep() < next->getStep()) {
+                next = &task;
+            }
+        }
+    }
+    return next;
+}
+
+int TodoList::queueTotal(const std::string& name) const {
+    int total = 0;
+    for (const auto& task : TaskList) {
+        if (task.getQueue() == name) total++;
+    }
+    return total;
 }
 
 void TodoList::removeTask(int Id) {
@@ -38,7 +75,7 @@ void TodoList::removeTask(int Id) {
     }
 }
 
-std::string TodoList::showAllTasks(bool showPending, bool showDone, bool filterByPriority, Task::Priority priorityFilter) {
+std::string TodoList::showAllTasks(bool showPending, bool showDone, bool filterByPriority, Task::Priority priorityFilter, bool showHidden) {
     if (TaskList.empty()) {
         return "\n" CYAN "📋 No tasks yet!\n" RESET
                "   Add one with: ./todo -a \"task\" [priority]\n\n";
@@ -55,6 +92,9 @@ std::string TodoList::showAllTasks(bool showPending, bool showDone, bool filterB
 
         if (!statusMatch) continue;
 
+        // Queued steps that are not revealed yet stay hidden unless asked for
+        if (task.isHidden() && !showHidden) continue;
+
         // Priority filter
         if (filterByPriority && task.getPriority() != priorityFilter) continue;
 
@@ -68,7 +108,11 @@ std::string TodoList::showAllTasks(bool showPending, bool showDone, bool filterB
     // Sort by priority
     std::sort(filtered.begin(), filtered.end(),
     [](const Task& a, const Task& b) {
-        return a.getPriority() > b.getPriority();
+        if (a.getPriority() != b.getPriority())
+            return a.getPriority() > b.getPriority();
+        if (a.getQueue() != b.getQueue())
+            return a.getQueue() < b.getQueue();
+        return a.getStep() < b.getStep();
     });
 
     std::string result;
@@ -87,10 +131,16 @@ std::string TodoList::showAllTasks(bool showPending, bool showDone, bool filterB
         }
 
         result += " #" + std::to_string(task.getId());
+        if (task.isQueued()) {
+            result += " " CYAN "[" + task.getQueue() + " " + std::to_string(task.getStep()) + "/"
+                      + std::to_string(queueTotal(task.getQueue())) + "]" RESET;
+        }
         result += " " + task.getDescription();
         result += " ";
 
-        if (task.isDone()) {
+        if (task.isHidden()) {
+            result += GRAY "[🔒 QUEUED]" RESET;
+        } else if (task.isDone()) {
             result += GREEN "[✓ DONE]" RESET;
         } else {
             result += YELLOW "[⏳ TODO]" RESET;
@@ -121,7 +171,7 @@ void TodoList::editTaskPriority(int id, Task::Priority priority) {
 std::vector<Task> TodoList::pendingTasks(Task::Priority priority) const {
     std::vector<Task> result;
     for (const auto& task : TaskList) {
-        if (!task.isDone() && task.getPriority() == priority) {
+        if (!task.isDone() && !task.isHidden() && task.getPriority() == priority) {
             result.push_back(task);
         }
     }
