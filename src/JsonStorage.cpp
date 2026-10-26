@@ -89,7 +89,9 @@ std::vector<Task> JsonStorage::load() {
             i["done"],
             i.value("queue", std::string()),
             i.value("step", 0),
-            i.value("hidden", false)
+            i.value("hidden", false),
+            i.value("archived", false),
+            i.value("doneDate", std::string())
         ));
     }
 
@@ -112,6 +114,8 @@ void JsonStorage::save(const std::vector<Task>& Tasks) {
             item["step"]=Task.getStep();
             item["hidden"]=Task.isHidden();
         }
+        if (Task.isDone() && !Task.getDoneDate().empty()) item["doneDate"]=Task.getDoneDate();
+        if (Task.isArchived()) item["archived"]=true;
         j.push_back(item);
     }
     WriteFile<< j.dump(4);

@@ -24,7 +24,8 @@ public:
     int queueTotal(const std::string& name) const;
     void removeTask(int Id);
     void editTaskPriority(int id, Task::Priority priority);
-    std::string showAllTasks(bool showPending,bool showDone,bool filterByPriority,Task::Priority priorityFilter,bool showHidden=false);
+    std::string showAllTasks(bool showPending,bool showDone,bool filterByPriority,Task::Priority priorityFilter,bool showHidden=false,bool showArchived=false);
+    int archiveDone(const std::string& before);
     std::vector<Task> pendingTasks(Task::Priority priority) const;
 
     int getNextId();
