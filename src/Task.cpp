@@ -1,8 +1,10 @@
 #include "Task.hpp"
+#include <ctime>
 
 Task::Task(int id, const std::string& description,Priority p, bool done,
-           const std::string& queue, int step, bool hidden): priority_(p), id_(id), description_(description),
-done_(done), queue_(queue), step_(step), hidden_(hidden) {}
+           const std::string& queue, int step, bool hidden, bool archived, const std::string& doneDate):
+priority_(p), id_(id), description_(description), done_(done), queue_(queue), step_(step), hidden_(hidden),
+archived_(archived), doneDate_(doneDate) {}
 
 
 
@@ -22,6 +24,14 @@ void Task::setPriority(Priority p) {
 
 void Task::setHidden(bool is_hidden) {
     hidden_ = is_hidden;
+}
+
+void Task::setArchived(bool is_archived) {
+    archived_ = is_archived;
+}
+
+void Task::setDoneDate(const std::string& date) {
+    doneDate_ = date;
 }
 
 int Task::getId() const {
@@ -48,6 +58,12 @@ bool Task::isHidden() const {
 bool Task::isQueued() const {
     return !queue_.empty();
 }
+bool Task::isArchived() const {
+    return archived_;
+}
+std::string Task::getDoneDate() const {
+    return doneDate_;
+}
 
 std::string Task::priorityToString(Priority p) {
     switch (p) {
@@ -62,4 +78,11 @@ Task::Priority Task::parsePriority(const std::string& input) {
     if (input == "high") return Priority::HIGH;
     if (input == "medium") return Priority::MEDIUM;
     return Priority::LOW;
+}
+
+std::string Task::today() {
+    std::time_t now = std::time(nullptr);
+    char buffer[11];
+    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", std::localtime(&now));
+    return buffer;
 }

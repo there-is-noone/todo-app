@@ -87,6 +87,15 @@ Only the current step of a queue is shown. Marking it done with `todo -d <id>`
 reveals the next one, until the queue is complete. Leading `- `, `- [ ] `, `* ` and `1. `
 markers are stripped, so a pasted checklist works as-is.
 
+#### Archive
+```bash
+todo -arch                # Show archived done tasks (also --archive, -A)
+todo --archive --high     # Same priority filters as todo -l
+```
+The first `todo -n` of each day moves tasks finished on earlier days to the archive,
+so `todo -l` only shows open tasks and the ones you finished today.
+`todo -d <id>` on an archived task marks it not done and brings it back to the list.
+
 #### Daily popup with HIGH priority tasks
 ```bash
 todo -n                   # Desktop popup listing pending HIGH priority tasks

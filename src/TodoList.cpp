@@ -16,9 +16,15 @@ Task* TodoList::findById(int Id) {
 
 void TodoList::markTaskDone(int Id) {
     Task* task= findById(Id);
-    if (!task -> isDone())
+    if (!task -> isDone()) {
         task->setDone(true);
-    else task ->setDone(false);
+        task->setDoneDate(Task::today());
+    } else {
+        // Un-doing an archived task brings it back to the normal list
+        task->setDone(false);
+        task->setDoneDate("");
+        task->setArchived(false);
+    }
 
     // Finishing a queued step reveals the next hidden step of the same queue
     if (task->isDone() && task->isQueued()) {
@@ -65,6 +71,19 @@ int TodoList::queueTotal(const std::string& name) const {
     return total;
 }
 
+// Archives done tasks finished before the given date (tasks without a date count as old)
+int TodoList::archiveDone(const std::string& before) {
+    int count = 0;
+    for (auto& task : TaskList) {
+        if (task.isDone() && !task.isArchived() && task.getDoneDate() < before) {
+            task.setArchived(true);
+            count++;
+        }
+    }
+    if (count > 0) storage.save(TaskList);
+    return count;
+}
+
 void TodoList::removeTask(int Id) {
     for (auto it=TaskList.begin(); it!=TaskList.end(); ++it) {
         if (it->getId() == Id) {
@@ -75,7 +94,7 @@ void TodoList::removeTask(int Id) {
     }
 }
 
-std::string TodoList::showAllTasks(bool showPending, bool showDone, bool filterByPriority, Task::Priority priorityFilter, bool showHidden) {
+std::string TodoList::showAllTasks(bool showPending, bool showDone, bool filterByPriority, Task::Priority priorityFilter, bool showHidden, bool showArchived) {
     if (TaskList.empty()) {
         return "\n" CYAN "📋 No tasks yet!\n" RESET
                "   Add one with: ./todo -a \"task\" [priority]\n\n";
@@ -91,6 +110,9 @@ std::string TodoList::showAllTasks(bool showPending, bool showDone, bool filterB
         }
 
         if (!statusMatch) continue;
+
+        // The normal list skips archived tasks, the archive shows only them
+        if (task.isArchived() != showArchived) continue;
 
         // Queued steps that are not revealed yet stay hidden unless asked for
         if (task.isHidden() && !showHidden) continue;
@@ -138,7 +160,9 @@ std::string TodoList::showAllTasks(bool showPending, bool showDone, bool filterB
         result += " " + task.getDescription();
         result += " ";
 
-        if (task.isHidden()) {
+        if (task.isArchived()) {
+            result += GRAY "[📦 ARCHIVED" + (task.getDoneDate().empty() ? "" : " " + task.getDoneDate()) + "]" RESET;
+        } else if (task.isHidden()) {
             result += GRAY "[🔒 QUEUED]" RESET;
         } else if (task.isDone()) {
             result += GREEN "[✓ DONE]" RESET;

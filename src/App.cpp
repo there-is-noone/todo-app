@@ -25,6 +25,9 @@ void App::run(int argc, char* argv[]) {
     else if (command=="--list" || command=="-l") {
         handleList(argc,argv);
     }
+    else if (command=="--archive" || command=="-arch" || command=="-A") {
+        handleList(argc,argv,true);
+    }
     else if (command=="--add" || command=="-a") {
         handleAdd(argc,argv);
     }
@@ -69,6 +72,7 @@ void App::printHelp(int argc,char* argv[]) const {
         "Commands:\n"
         "  -a, --add       Add a new task\n"
         "  -l, --list      Show all tasks\n"
+        "  -arch, --archive Show archived done tasks\n"
         "  -r, --remove    Remove a task\n"
         "  -d, --done      Mark task as done\n"
         "  -e, --edit      Edit the priority of a task\n"
@@ -78,6 +82,7 @@ void App::printHelp(int argc,char* argv[]) const {
         "  todo -h [add | a]\n"
         "  todo -h [remove | r] \n"
         "  todo -h [list | l]\n"
+        "  todo -h [archive | arch]\n"
         "  todo -h [done | d]\n"
         "  todo -h [edit | e]\n"
         "  todo -h [notify | n]\n"
@@ -125,13 +130,27 @@ void App::printHelp(int argc,char* argv[]) const {
                "todo -l --high             Show only HIGH priority\n"
                "todo -l --medium           Show only MEDIUM priority\n"
                "todo -l --low              Show only LOW priority\n"
-               "todo -l --queued (-q)      Also show queued steps not revealed yet\n\n"
+               "todo -l --queued (-q)      Also show queued steps not revealed yet\n"
+               "todo -l --archive (-arch)  Show archived tasks instead\n\n"
                "Combine filters:\n"
                "todo -l -p --high          Show HIGH priority tasks that are TODO\n\n"
                "Examples:\n"
                "todo -l\n"
                "todo -l --pending\n"
                "todo -l --high --pending\n";       }
+        else if (command == "archive" || command == "arch") {
+            std::cout <<
+               "ARCHIVE COMMAND\n"
+               "Usage:\n"
+               "todo -arch                 Show archived tasks\n"
+               "todo --archive --high      Show archived HIGH priority tasks\n\n"
+               "Description:\n"
+               "Done tasks are moved to the archive by the daily todo -n run,\n"
+               "once the day they were finished is over, so they no longer\n"
+               "clutter todo -l. The same priority filters as todo -l work here.\n"
+               "Marking an archived task as not done with todo -d <id> brings\n"
+               "it back to the list.\n";
+        }
         else if (command == "done" || command == "d") {
             std::cout <<
                 "DONE COMMAND\n"
@@ -165,7 +184,9 @@ void App::printHelp(int argc,char* argv[]) const {
     "Description:\n"
     "Shows a desktop popup listing all pending HIGH priority tasks.\n"
     "Only the first call of each day shows the popup, so it is safe\n"
-    "to run on every login / screen unlock.\n\n"
+    "to run on every login / screen unlock.\n"
+    "That first call also moves tasks finished on earlier days\n"
+    "to the archive (see todo -h archive).\n\n"
     "Options:\n"
     "--force, -f   Show the popup even if it was already shown today\n\n"
     "Example:\n"
@@ -193,7 +214,7 @@ void App::printHelp(int argc,char* argv[]) const {
         }
         else {
             std::cout << "Unknown help topic. Use:\n";
-            std::cout << "todo -h add|remove|list|done|edit|notify|queue\n";
+            std::cout << "todo -h add|remove|list|archive|done|edit|notify|queue\n";
         }
     }
     }
@@ -230,7 +251,7 @@ void App::handleAdd(int argc, char* argv[]) {
     std::cout << GREEN "✅ Task added: " RESET << description << "\n";
 }
 
-void App::handleList(int argc,char* argv[]) {
+void App::handleList(int argc,char* argv[], bool showArchived) {
     Task::Priority priorityFilter = Task::Priority::HIGH;
     bool showPending = false;
     bool showDone = false;
@@ -239,7 +260,9 @@ void App::handleList(int argc,char* argv[]) {
 
     for (int i = 2; i < argc; i++) {
         std::string arg = argv[i];
-        if (arg == "--queued" || arg == "-q") {
+        if (arg == "--archive" || arg == "-arch" || arg == "-A") {
+            showArchived = true;
+        } else if (arg == "--queued" || arg == "-q") {
             showHidden = true;
         } else if (arg == "--pending" || arg == "-p") {
             showPending = true;
@@ -257,7 +280,7 @@ void App::handleList(int argc,char* argv[]) {
         }
     }
     std::cout << "\n";
-    std::cout << todo.showAllTasks(showPending, showDone, filterByPriority, priorityFilter, showHidden) << std::endl;
+    std::cout << todo.showAllTasks(showPending, showDone, filterByPriority, priorityFilter, showHidden, showArchived) << std::endl;
     std::cout << "\n";
 }
 
@@ -439,13 +462,6 @@ static std::filesystem::path notifyStampPath() {
     return stateDir / "todo-app" / "last-notify";
 }
 
-static std::string today() {
-    std::time_t now = std::time(nullptr);
-    char buffer[11];
-    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", std::localtime(&now));
-    return buffer;
-}
-
 void App::handleNotify(int argc, char* argv[]) {
     bool force = false;
     for (int i = 2; i < argc; i++) {
@@ -454,7 +470,7 @@ void App::handleNotify(int argc, char* argv[]) {
     }
 
     auto stampPath = notifyStampPath();
-    std::string date = today();
+    std::string date = Task::today();
     if (!force) {
         std::ifstream stamp(stampPath);
         std::string lastDate;
@@ -462,6 +478,9 @@ void App::handleNotify(int argc, char* argv[]) {
             return;
         }
     }
+
+    // The first run of the day also moves tasks finished on earlier days to the archive
+    todo.archiveDone(date);
 
     std::vector<Task> tasks = todo.pendingTasks(Task::Priority::HIGH);
     if (!tasks.empty()) {
