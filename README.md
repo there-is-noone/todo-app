@@ -218,6 +218,14 @@ Example `tasks.json`:
 - C++17+
 - CMake 3.10+ (or Makefile alternative)
 
+## Tests
+
+```bash
+cmake -B build && cmake --build build
+TODO_SRC=. TODO_BUILD=build bash tests/run.sh build/todo ALL
+```
+Every check runs in a throwaway sandbox, so your own tasks are never touched.
+
 ## Build Without CMake
 
 Create `Makefile`:
