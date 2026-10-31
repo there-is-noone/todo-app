@@ -91,10 +91,13 @@ markers are stripped, so a pasted checklist works as-is.
 ```bash
 todo -arch                # Show archived done tasks (also --archive, -A)
 todo --archive --high     # Same priority filters as todo -l
+todo -arch --clear 30     # Delete archived tasks finished more than 30 days ago
 ```
 The first `todo -n` of each day moves tasks finished on earlier days to the archive,
 so `todo -l` only shows open tasks and the ones you finished today.
 `todo -d <id>` on an archived task marks it not done and brings it back to the list.
+`--clear <days>` deletes old archived tasks for good (ones without a date count as old);
+`todo -u` right after it brings them back.
 
 #### Undo the last change
 ```bash

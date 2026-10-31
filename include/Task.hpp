@@ -9,6 +9,7 @@ public:
     static Priority parsePriority(const std::string& input);
     static std::string priorityToString(Priority p);
     static std::string today();
+    static std::string daysAgo(int days);
 
     Task(int id, const std::string& description, Priority p, bool done=false,
          const std::string& queue="", int step=0, bool hidden=false,

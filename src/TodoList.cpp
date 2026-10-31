@@ -84,6 +84,17 @@ int TodoList::archiveDone(const std::string& before) {
     return count;
 }
 
+// Deletes archived tasks finished before the given date (tasks without a date count as old)
+int TodoList::clearArchive(const std::string& before) {
+    auto old = [&](const Task& task) { return task.isArchived() && task.getDoneDate() < before; };
+    int count = std::count_if(TaskList.begin(), TaskList.end(), old);
+    if (count > 0) {
+        TaskList.erase(std::remove_if(TaskList.begin(), TaskList.end(), old), TaskList.end());
+        storage.save(TaskList);
+    }
+    return count;
+}
+
 void TodoList::removeTask(int Id) {
     for (auto it=TaskList.begin(); it!=TaskList.end(); ++it) {
         if (it->getId() == Id) {

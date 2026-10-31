@@ -33,8 +33,7 @@ int main(int argc, char* argv[]) {
         TodoList todo(storage);
 
         App app(todo);
-        app.run(argc,argv);
-        return 0;
+        return app.run(argc,argv);
     } catch (const StorageError& e) {
         // The task file could not be read or written; it is left as it was
         std::cerr << RED "❌ " << e.what() << "\n" RESET;

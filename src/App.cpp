@@ -9,14 +9,15 @@
 #include <unistd.h>
 #include <vector>
 #include <cctype>
+#include <algorithm>
 #include "colors.hpp"
 
 extern char** environ;
 
-void App::run(int argc, char* argv[]) {
+int App::run(int argc, char* argv[]) {
     if (argc<2) {
         printDefault();
-        return;
+        return exitCode;
     }
     std::string command=argv[1];
     if (command=="--help" || command=="-h") {
@@ -26,7 +27,11 @@ void App::run(int argc, char* argv[]) {
         handleList(argc,argv);
     }
     else if (command=="--archive" || command=="-arch" || command=="-A") {
-        handleList(argc,argv,true);
+        if (argc>2 && std::string(argv[2])=="--clear") {
+            handleClearArchive(argc,argv);
+        } else {
+            handleList(argc,argv,true);
+        }
     }
     else if (command=="--add" || command=="-a") {
         handleAdd(argc,argv);
@@ -34,14 +39,14 @@ void App::run(int argc, char* argv[]) {
     else if (command=="--remove" || command=="-r") {
         if (argc<3) {
             printDefault();
-            return;
+            return exitCode;
         }
         handleRemove(argc,argv);
     }
     else if (command=="--done" || command=="-d") {
         if (argc<3) {
             printDefault();
-            return;
+            return exitCode;
         }
         handleDone(argc,argv);
     }
@@ -57,7 +62,12 @@ void App::run(int argc, char* argv[]) {
     else {
         printDefault();
     }
+    return exitCode;
+}
 
+std::ostream& App::error() {
+    exitCode = 1;
+    return std::cerr;
 }
 
 void App::printDefault() const {
@@ -147,13 +157,18 @@ void App::printHelp(int argc,char* argv[]) const {
                "ARCHIVE COMMAND\n"
                "Usage:\n"
                "todo -arch                 Show archived tasks\n"
-               "todo --archive --high      Show archived HIGH priority tasks\n\n"
+               "todo --archive --high      Show archived HIGH priority tasks\n"
+               "todo -arch --clear <days>  Delete archived tasks finished more than <days> days ago\n\n"
                "Description:\n"
                "Done tasks are moved to the archive by the daily todo -n run,\n"
                "once the day they were finished is over, so they no longer\n"
                "clutter todo -l. The same priority filters as todo -l work here.\n"
                "Marking an archived task as not done with todo -d <id> brings\n"
-               "it back to the list.\n";
+               "it back to the list.\n"
+               "--clear removes old archived tasks for good (archived tasks\n"
+               "without a date count as old); todo -u brings them back.\n\n"
+               "Example:\n"
+               "todo -arch --clear 30      Keep only the last 30 days\n";
         }
         else if (command == "done" || command == "d") {
             std::cout <<
@@ -467,6 +482,19 @@ void App::handleEdit(int argc, char* argv[]) {
     todo.editTaskPriority(id, newPriority);
     std::cout << GREEN "✅ Task " << id << " priority updated to " RESET
               << YELLOW << priorityStr << RESET << "\n";
+}
+
+// todo -arch --clear <days>: deletes archived tasks finished more than <days> days ago
+void App::handleClearArchive(int argc, char* argv[]) {
+    std::string days = argc == 4 ? argv[3] : "";
+    bool valid = !days.empty() && days.size() <= 5
+                 && std::all_of(days.begin(), days.end(), [](unsigned char c) { return std::isdigit(c); });
+    if (!valid) {
+        error() << RED "❌ Usage: todo -arch --clear <days>\n" RESET;
+        return;
+    }
+    int removed = todo.clearArchive(Task::daysAgo(std::stoi(days)));
+    std::cout << GREEN "🗑️  Removed " << removed << " archived task(s)\n" RESET;
 }
 
 static std::filesystem::path notifyStampPath() {
