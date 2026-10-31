@@ -223,6 +223,11 @@ void App::printHelp(int argc,char* argv[]) {
         }
     }
     }
+// True for an empty or whitespace-only string
+static bool isBlank(const std::string& str) {
+    return str.find_first_not_of(" \t\r\n") == std::string::npos;
+}
+
 void App::handleAdd(int argc, char* argv[]) {
     std::string description;
     std::string prioritystring;
@@ -232,7 +237,7 @@ void App::handleAdd(int argc, char* argv[]) {
         std::cout << "Enter description: ";
         std::getline(std::cin, description);
 
-        if (description.empty()) {
+        if (isBlank(description)) {
             error() << RED "❌ Description cannot be empty\n" RESET;
             return;
         }
@@ -250,6 +255,11 @@ void App::handleAdd(int argc, char* argv[]) {
                 if (!description.empty()) description += " ";
                 description += arg;
             }
+        }
+        // Only priority words (e.g. todo -a high) leave no description
+        if (isBlank(description)) {
+            error() << RED "❌ Description cannot be empty\n" RESET;
+            return;
         }
     }
     todo.addTask(description, priority);
