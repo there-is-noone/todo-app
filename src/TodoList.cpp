@@ -87,10 +87,38 @@ int TodoList::archiveDone(const std::string& before) {
 void TodoList::removeTask(int Id) {
     for (auto it=TaskList.begin(); it!=TaskList.end(); ++it) {
         if (it->getId() == Id) {
+            std::string queue = it->getQueue();
+            bool wasCurrent = it->isQueued() && !it->isHidden() && !it->isDone();
             TaskList.erase(it);
+            if (!queue.empty()) {
+                renumberQueue(queue);
+                // Removing the visible step of a queue reveals the next one, like finishing it would
+                if (wasCurrent) {
+                    Task* next = nextInQueue(queue);
+                    if (next && next->isHidden()) {
+                        next->setHidden(false);
+                    }
+                }
+            }
             storage.save(TaskList);
             return;
         }
+    }
+}
+
+// Numbers the remaining steps of a queue 1..n again, keeping their order
+void TodoList::renumberQueue(const std::string& name) {
+    std::vector<Task*> steps;
+    for (auto& task : TaskList) {
+        if (task.getQueue() == name) steps.push_back(&task);
+    }
+    std::sort(steps.begin(), steps.end(), [](const Task* a, const Task* b) {
+        if (a->getStep() != b->getStep()) return a->getStep() < b->getStep();
+        return a->getId() < b->getId();
+    });
+    int step = 1;
+    for (Task* task : steps) {
+        task->setStep(step++);
     }
 }
 

@@ -29,6 +29,7 @@ public:
     void setDescription(const std::string& description);
     void setId(int id);
     void setPriority(Priority p);
+    void setStep(int step);
     void setHidden(bool is_hidden=true);
     void setArchived(bool is_archived=true);
     void setDoneDate(const std::string& date);

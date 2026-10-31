@@ -22,6 +22,10 @@ void Task::setPriority(Priority p) {
     priority_ = p;
 }
 
+void Task::setStep(int step) {
+    step_ = step;
+}
+
 void Task::setHidden(bool is_hidden) {
     hidden_ = is_hidden;
 }

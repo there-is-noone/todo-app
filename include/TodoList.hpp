@@ -23,6 +23,7 @@ public:
     Task* nextInQueue(const std::string& name);
     int queueTotal(const std::string& name) const;
     void removeTask(int Id);
+    void renumberQueue(const std::string& name);
     void editTaskPriority(int id, Task::Priority priority);
     std::string showAllTasks(bool showPending,bool showDone,bool filterByPriority,Task::Priority priorityFilter,bool showHidden=false,bool showArchived=false);
     int archiveDone(const std::string& before);
