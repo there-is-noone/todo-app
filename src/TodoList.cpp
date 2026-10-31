@@ -225,3 +225,7 @@ void TodoList::editTask(int id, const std::string& description, Task::Priority p
     task->setPriority(priority);
     storage.save(TaskList);
 }
+
+const std::vector<Task>& TodoList::getTasks() const {
+    return TaskList;
+}

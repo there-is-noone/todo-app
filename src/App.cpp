@@ -59,6 +59,13 @@ int App::run(int argc, char* argv[]) {
     else if (command=="--queue" || command=="-q") {
         handleQueue(argc,argv);
     }
+    else if (command=="--info" || command=="-i") {
+        handleInfo(argc,argv);
+    }
+    else if (command=="--ids") {
+        // Hidden helper for shell completion
+        printIds();
+    }
     else {
         printDefault();
     }
@@ -122,7 +129,8 @@ void App::printHelp(int argc,char* argv[]) {
         "  -d, --done      Mark tasks as done\n"
         "  -e, --edit      Edit the priority or description of a task\n"
         "  -n, --notify    Popup with HIGH priority tasks (once a day)\n"
-        "  -q, --queue     Add a checklist whose steps appear one by one\n\n"
+        "  -q, --queue     Add a checklist whose steps appear one by one\n"
+        "  -i, --info      Show all details of a task\n\n"
         "More help:\n"
         "  todo -h [add | a]\n"
         "  todo -h [remove | r] \n"
@@ -132,7 +140,8 @@ void App::printHelp(int argc,char* argv[]) {
         "  todo -h [done | d]\n"
         "  todo -h [edit | e]\n"
         "  todo -h [notify | n]\n"
-        "  todo -h [queue | q]\n\n";
+        "  todo -h [queue | q]\n"
+        "  todo -h [info | i]\n\n";
     }
     else {
         std::string command=argv[2];
@@ -295,9 +304,23 @@ void App::printHelp(int argc,char* argv[]) {
     "When stdin is a terminal, type one step per line and finish\n"
     "with an empty line.\n";
         }
+        else if (command=="info" || command=="i") {
+            std::cout <<
+    "INFO COMMAND\n"
+    "Usage:\n"
+    "todo -i <id>...\n\n"
+    "Description:\n"
+    "Shows the full record of a task: ID, description, priority,\n"
+    "status (TODO, DONE, QUEUED or ARCHIVED), queue name and step\n"
+    "if it belongs to a queue, and the date it was done.\n\n"
+    "Arguments:\n"
+    "id    The ID of a task, or a range like 2-5\n\n"
+    "Example:\n"
+    "todo -i 3\n";
+        }
         else {
             error() << "Unknown help topic. Use:\n";
-            error() << "todo -h add|remove|list|search|archive|done|edit|notify|queue\n";
+            error() << "todo -h add|remove|list|search|archive|done|edit|notify|queue|info\n";
         }
     }
     }
@@ -574,6 +597,55 @@ void App::handleEdit(int argc, char* argv[]) {
         std::cout << " (priority " YELLOW << priorityStr << RESET ")";
     }
     std::cout << "\n";
+}
+
+void App::handleInfo(int argc, char* argv[]) {
+    if (argc < 3) {
+        error() << RED "❌ Usage: todo -i <id>...\n" RESET;
+        return;
+    }
+    bool first = true;
+    for (int id : parseIds(argc, argv, 2)) {
+        const Task* task = todo.findById(id);
+        if (!task) {
+            error() << RED "❌ No task with ID " << id << "\n" RESET;
+            continue;
+        }
+        if (!first) std::cout << "\n";
+        first = false;
+
+        std::string priority = Task::priorityToString(task->getPriority());
+        for (auto& c : priority) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        const char* priorityColor = task->getPriority() == Task::Priority::HIGH ? RED
+                                  : task->getPriority() == Task::Priority::MEDIUM ? YELLOW : GRAY;
+
+        // Same precedence as the [STATUS] tag of todo -l
+        std::string status;
+        if (task->isArchived()) status = GRAY "ARCHIVED";
+        else if (task->isHidden()) status = GRAY "QUEUED";
+        else if (task->isDone()) status = GREEN "DONE";
+        else status = YELLOW "TODO";
+
+        std::cout << BLUE "📄 Task #" << id << "\n" RESET;
+        std::cout << "   Description: " << task->getDescription() << "\n";
+        std::cout << "   Priority:    " << priorityColor << priority << RESET "\n";
+        std::cout << "   Status:      " << status << RESET "\n";
+        if (task->isQueued()) {
+            std::cout << "   Queue:       " CYAN << task->getQueue() << RESET
+                      << " (step " << task->getStep() << "/" << todo.queueTotal(task->getQueue()) << ")\n";
+        }
+        if (!task->getDoneDate().empty()) {
+            std::cout << "   Done date:   " << task->getDoneDate() << "\n";
+        }
+    }
+}
+
+// One "id<TAB>description" line per task shown by todo -l, read by the shell completion
+void App::printIds() const {
+    for (const auto& task : todo.getTasks()) {
+        if (task.isHidden() || task.isArchived()) continue;
+        std::cout << task.getId() << "\t" << task.getDescription() << "\n";
+    }
 }
 
 static std::filesystem::path notifyStampPath() {

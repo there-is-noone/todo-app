@@ -79,6 +79,13 @@ todo -d 2-5               # A range of IDs
 Each ID gets its own result line. Unknown IDs are reported, the others are still
 applied, and the exit code is 1 if any ID failed.
 
+#### Task details
+```bash
+todo -i 3                 # Full record of task #3 (also --info)
+```
+Shows the ID, description, priority, status (TODO/DONE/QUEUED/ARCHIVED), the queue
+name and step for queued tasks, and the date the task was done.
+
 #### Edit a task
 ```bash
 todo -e 2 high            # Change task #2 to HIGH priority
