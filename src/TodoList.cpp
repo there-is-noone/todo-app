@@ -127,14 +127,16 @@ std::string TodoList::showAllTasks(bool showPending, bool showDone, bool filterB
         return "\n--- No matching tasks ---\n\n";
     }
 
-    // Sort by priority
+    // Sort by priority, then queue and step; ties go by ID so the newest task is last
     std::sort(filtered.begin(), filtered.end(),
     [](const Task& a, const Task& b) {
         if (a.getPriority() != b.getPriority())
             return a.getPriority() > b.getPriority();
         if (a.getQueue() != b.getQueue())
             return a.getQueue() < b.getQueue();
-        return a.getStep() < b.getStep();
+        if (a.getStep() != b.getStep())
+            return a.getStep() < b.getStep();
+        return a.getId() < b.getId();
     });
 
     std::string result;
