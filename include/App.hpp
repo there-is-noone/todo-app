@@ -1,6 +1,7 @@
 #pragma once
 #include "TodoList.hpp"
 #include <ostream>
+#include <vector>
 
 class App {
 public:
@@ -20,6 +21,7 @@ public:
     void handleQueue(int argc, char* argv[]);
     // Error lines go to stderr and make the run exit with 1
     std::ostream& error();
+    std::vector<int> parseIds(int argc, char* argv[], int first);
     TodoList& todo;
     int exitCode = 0;
 };

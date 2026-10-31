@@ -65,7 +65,11 @@ todo -l --medium --done   # MEDIUM priority tasks that are DONE
 ```bash
 todo -d 1                 # Mark task #1 as done
 todo --done 3             # Mark task #3 as done
+todo -d 1 4 7             # Several tasks at once
+todo -d 2-5               # A range of IDs
 ```
+Each ID gets its own result line. Unknown IDs are reported, the others are still
+applied, and the exit code is 1 if any ID failed.
 
 #### Edit a task
 ```bash
@@ -80,6 +84,7 @@ todo -e 3 Buy oat milk high     # Same: priority may be the first or the last wo
 ```bash
 todo -r 1                 # Delete task #1
 todo --remove 3           # Delete task #3
+todo -r 1 3-4             # Delete #1, #3 and #4
 ```
 #### Checklist queues
 ```bash

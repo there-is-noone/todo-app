@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <vector>
 #include <cctype>
+#include <algorithm>
 #include "colors.hpp"
 
 extern char** environ;
@@ -65,6 +66,40 @@ std::ostream& App::error() {
     return std::cerr;
 }
 
+// Plain non-negative number, no signs or trailing junk
+static bool parseNumber(const std::string& str, int& number) {
+    if (str.empty() || str.size() > 9) return false;
+    for (char c : str) {
+        if (!std::isdigit(static_cast<unsigned char>(c))) return false;
+    }
+    number = std::stoi(str);
+    return true;
+}
+
+// Reads IDs and ranges ("4", "2-5") from argv[first..]. Bad arguments print an error and are
+// skipped; duplicates are dropped so a task is never toggled twice.
+std::vector<int> App::parseIds(int argc, char* argv[], int first) {
+    std::vector<int> ids;
+    for (int i = first; i < argc; i++) {
+        std::string arg = argv[i];
+        size_t dash = arg.find('-', 1);
+        int from, to;
+        if (!parseNumber(arg.substr(0, dash), from)
+            || !parseNumber(dash == std::string::npos ? arg : arg.substr(dash + 1), to)) {
+            error() << RED "❌ Invalid ID: " << arg << "\n" RESET;
+            continue;
+        }
+        if (from > to || to - from >= 1000) {
+            error() << RED "❌ Invalid range: " << arg << "\n" RESET;
+            continue;
+        }
+        for (int id = from; id <= to; id++) {
+            if (std::find(ids.begin(), ids.end(), id) == ids.end()) ids.push_back(id);
+        }
+    }
+    return ids;
+}
+
 void App::printDefault() {
     error() << "Unknown or missing command. Use --help" << std::endl;
 }
@@ -78,8 +113,8 @@ void App::printHelp(int argc,char* argv[]) {
         "  -a, --add       Add a new task\n"
         "  -l, --list      Show all tasks\n"
         "  -arch, --archive Show archived done tasks\n"
-        "  -r, --remove    Remove a task\n"
-        "  -d, --done      Mark task as done\n"
+        "  -r, --remove    Remove tasks\n"
+        "  -d, --done      Mark tasks as done\n"
         "  -e, --edit      Edit the priority or description of a task\n"
         "  -n, --notify    Popup with HIGH priority tasks (once a day)\n"
         "  -q, --queue     Add a checklist whose steps appear one by one\n\n"
@@ -119,13 +154,15 @@ void App::printHelp(int argc,char* argv[]) {
             std::cout <<
                 "REMOVE COMMAND\n"
                 "Usage:\n"
-                "todo -r <id>\n\n"
+                "todo -r <id>...\n\n"
                 "Description:\n"
-                "Removes a task by its ID.\n\n"
+                "Removes one or more tasks by their ID.\n\n"
                 "Arguments:\n"
-                "id    The ID of the task to remove\n\n"
-                "Example:\n"
-                "todo -r 3\n";
+                "id    The ID of a task to remove, or a range like 2-5\n\n"
+                "Examples:\n"
+                "todo -r 3\n"
+                "todo -r 1 4 7\n"
+                "todo -r 1 3-4\n";
         }
         else if (command == "list" || command =="l") {
             std::cout <<
@@ -162,13 +199,16 @@ void App::printHelp(int argc,char* argv[]) {
             std::cout <<
                 "DONE COMMAND\n"
                 "Usage:\n"
-                "todo -d <id>\n\n"
+                "todo -d <id>...\n\n"
                 "Description:\n"
-                "Marks a task as completed.\n\n"
+                "Marks one or more tasks as completed (a done task is marked\n"
+                "as not done again). IDs are handled in the given order.\n\n"
                 "Arguments:\n"
-                "id    The ID of the task to mark as done\n\n"
-                "Example:\n"
-                "todo -d 2\n";
+                "id    The ID of a task to mark as done, or a range like 2-5\n\n"
+                "Examples:\n"
+                "todo -d 2\n"
+                "todo -d 1 4 7\n"
+                "todo -d 2-5\n";
         }
         else if (command=="edit" || command=="e") {
             std::cout <<
@@ -342,24 +382,17 @@ void App::handleList(int argc,char* argv[], bool showArchived) {
 }
 
 void App::handleDone(int argc, char* argv[]) {
-    int id;
-    try {
-        id = std::stoi(argv[2]);
-    }
-    catch (const std::invalid_argument&) {
-        error() << RED "❌ Invalid ID: not a number\n" RESET;
-        return;
-    }
-    catch (const std::out_of_range&) {
-        error() << RED "❌ ID out of range\n" RESET;
-        return;
-    }
-
-    if (Task* task = todo.findById(id)) {
+    // IDs are handled in the given order, so "todo -d 5 6" can finish two steps of a queue
+    for (int id : parseIds(argc, argv, 2)) {
+        if (!todo.findById(id)) {
+            error() << RED "❌ No task with ID " << id << "\n" RESET;
+            continue;
+        }
         todo.markTaskDone(id);
+        Task* task = todo.findById(id);
         if (!task->isDone()) {
             std::cout << YELLOW "↩️  Task " << id << " marked as not done\n" RESET;
-            return;
+            continue;
         }
         std::cout << GREEN "✅ Task " << id << " marked as done!\n" RESET;
         if (task->isQueued()) {
@@ -371,8 +404,6 @@ void App::handleDone(int argc, char* argv[]) {
                 std::cout << GREEN "🏁 Queue \"" << queue << "\" complete!\n" RESET;
             }
         }
-    } else {
-        error() << RED "❌ No task with ID " << id << "\n" RESET;
     }
 }
 
@@ -443,24 +474,16 @@ void App::handleQueue(int argc, char* argv[]) {
 }
 
 void App::handleRemove(int argc, char* argv[]) {
-    int id;
-    try {
-        id = std::stoi(argv[2]);
-    }
-    catch (const std::invalid_argument&) {
-        error() << RED "❌ Invalid ID: not a number\n" RESET;
-        return;
-    }
-    catch (const std::out_of_range&) {
-        error() << RED "❌ ID out of range\n" RESET;
-        return;
-    }
-
-    if (todo.findById(id)) {
+    for (int id : parseIds(argc, argv, 2)) {
+        Task* task = todo.findById(id);
+        if (!task) {
+            error() << RED "❌ No task with ID " << id << "\n" RESET;
+            continue;
+        }
+        // Copy the text first: removing the task invalidates the pointer
+        std::string description = task->getDescription();
         todo.removeTask(id);
-        std::cout << GREEN "✅ Task removed\n" RESET;
-    } else {
-        error() << RED "❌ No task with ID " << id << "\n" RESET;
+        std::cout << GREEN "✅ Task removed: " RESET << "#" << id << " " << description << "\n";
     }
 }
 
