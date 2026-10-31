@@ -29,6 +29,10 @@ int App::run(int argc, char* argv[]) {
     else if (command=="--archive" || command=="-arch" || command=="-A") {
         handleList(argc,argv,true);
     }
+    else if (command=="--search" || command=="-s") {
+        // Start at argv[1] so handleList sees -s itself and takes the rest as the query
+        handleList(argc,argv,false,1);
+    }
     else if (command=="--add" || command=="-a") {
         handleAdd(argc,argv);
     }
@@ -112,6 +116,7 @@ void App::printHelp(int argc,char* argv[]) {
         "Commands:\n"
         "  -a, --add       Add a new task\n"
         "  -l, --list      Show all tasks\n"
+        "  -s, --search    Show tasks whose description contains a text\n"
         "  -arch, --archive Show archived done tasks\n"
         "  -r, --remove    Remove tasks\n"
         "  -d, --done      Mark tasks as done\n"
@@ -122,6 +127,7 @@ void App::printHelp(int argc,char* argv[]) {
         "  todo -h [add | a]\n"
         "  todo -h [remove | r] \n"
         "  todo -h [list | l]\n"
+        "  todo -h [search | s]\n"
         "  todo -h [archive | arch]\n"
         "  todo -h [done | d]\n"
         "  todo -h [edit | e]\n"
@@ -175,19 +181,41 @@ void App::printHelp(int argc,char* argv[]) {
                "todo -l --medium           Show only MEDIUM priority\n"
                "todo -l --low              Show only LOW priority\n"
                "todo -l --queued (-q)      Also show queued steps not revealed yet\n"
-               "todo -l --archive (-arch)  Show archived tasks instead\n\n"
+               "todo -l --archive (-arch)  Show archived tasks instead\n"
+               "todo -l --search (-s) <text...>  Only tasks containing the text\n"
+               "                           (must come last, takes the rest)\n\n"
                "Combine filters:\n"
                "todo -l -p --high          Show HIGH priority tasks that are TODO\n\n"
                "Examples:\n"
                "todo -l\n"
                "todo -l --pending\n"
-               "todo -l --high --pending\n";       }
+               "todo -l --high --pending\n"
+               "todo -l -p --high -s milk\n";       }
+        else if (command == "search" || command == "s") {
+            std::cout <<
+               "SEARCH COMMAND\n"
+               "Usage:\n"
+               "todo -s <text...>\n"
+               "todo --search <text...>\n\n"
+               "Description:\n"
+               "Lists the tasks whose description contains the text\n"
+               "(case-insensitive), in the same format as todo -l.\n"
+               "All arguments after -s form the search text.\n"
+               "It also works as a filter of todo -l and todo -arch,\n"
+               "as long as -s comes last.\n\n"
+               "Examples:\n"
+               "todo -s milk\n"
+               "todo -s buy milk\n"
+               "todo -l -p --high -s milk\n"
+               "todo -arch -s report\n";
+        }
         else if (command == "archive" || command == "arch") {
             std::cout <<
                "ARCHIVE COMMAND\n"
                "Usage:\n"
                "todo -arch                 Show archived tasks\n"
-               "todo --archive --high      Show archived HIGH priority tasks\n\n"
+               "todo --archive --high      Show archived HIGH priority tasks\n"
+               "todo -arch -s <text...>    Search the archive\n\n"
                "Description:\n"
                "Done tasks are moved to the archive by the daily todo -n run,\n"
                "once the day they were finished is over, so they no longer\n"
@@ -269,7 +297,7 @@ void App::printHelp(int argc,char* argv[]) {
         }
         else {
             error() << "Unknown help topic. Use:\n";
-            error() << "todo -h add|remove|list|archive|done|edit|notify|queue\n";
+            error() << "todo -h add|remove|list|search|archive|done|edit|notify|queue\n";
         }
     }
     }
@@ -348,14 +376,16 @@ void App::handleAdd(int argc, char* argv[]) {
     std::cout << GREEN "✅ Task added: " RESET << description << "\n";
 }
 
-void App::handleList(int argc,char* argv[], bool showArchived) {
+void App::handleList(int argc,char* argv[], bool showArchived, int first) {
     Task::Priority priorityFilter = Task::Priority::HIGH;
     bool showPending = false;
     bool showDone = false;
     bool filterByPriority = false;
     bool showHidden = false;
+    bool searching = false;
+    std::string search;
 
-    for (int i = 2; i < argc; i++) {
+    for (int i = first; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "--archive" || arg == "-arch" || arg == "-A") {
             showArchived = true;
@@ -374,10 +404,21 @@ void App::handleList(int argc,char* argv[], bool showArchived) {
         } else if (arg == "--low") {
             priorityFilter = Task::Priority::LOW;
             filterByPriority = true;
+        } else if (arg == "--search" || arg == "-s") {
+            // Everything after -s is the search text
+            searching = true;
+            for (i++; i < argc; i++) {
+                if (!search.empty()) search += " ";
+                search += argv[i];
+            }
         }
     }
+    if (searching && isBlank(search)) {
+        error() << RED "❌ Usage: todo -s <text...>\n" RESET;
+        return;
+    }
     std::cout << "\n";
-    std::cout << todo.showAllTasks(showPending, showDone, filterByPriority, priorityFilter, showHidden, showArchived) << std::endl;
+    std::cout << todo.showAllTasks(showPending, showDone, filterByPriority, priorityFilter, showHidden, showArchived, search) << std::endl;
     std::cout << "\n";
 }
 

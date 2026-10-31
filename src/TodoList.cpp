@@ -3,6 +3,7 @@
 #include "Task.hpp"
 #include "colors.hpp"
 #include <algorithm>
+#include <cctype>
 
 
 Task* TodoList::findById(int Id) {
@@ -94,7 +95,7 @@ void TodoList::removeTask(int Id) {
     }
 }
 
-std::string TodoList::showAllTasks(bool showPending, bool showDone, bool filterByPriority, Task::Priority priorityFilter, bool showHidden, bool showArchived) {
+std::string TodoList::showAllTasks(bool showPending, bool showDone, bool filterByPriority, Task::Priority priorityFilter, bool showHidden, bool showArchived, const std::string& search) {
     if (TaskList.empty()) {
         return "\n" CYAN "📋 No tasks yet!\n" RESET
                "   Add one with: ./todo -a \"task\" [priority]\n\n";
@@ -119,6 +120,15 @@ std::string TodoList::showAllTasks(bool showPending, bool showDone, bool filterB
 
         // Priority filter
         if (filterByPriority && task.getPriority() != priorityFilter) continue;
+
+        // Search filter: case-insensitive substring of the description
+        if (!search.empty()) {
+            auto lower = [](std::string str) {
+                for (auto& c : str) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                return str;
+            };
+            if (lower(task.getDescription()).find(lower(search)) == std::string::npos) continue;
+        }
 
         filtered.push_back(task);
     }

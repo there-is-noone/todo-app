@@ -5,7 +5,7 @@ A lightweight Linux command-line todo list application in modern C++. Manage tas
 ## Features
 
 - 🎯 Priority-based task management (HIGH/MEDIUM/LOW)
-- 📋 Filter tasks by status (`--pending`, `--done`) or priority
+- 📋 Filter tasks by status (`--pending`, `--done`) or priority, search by text (`-s`)
 - ✏️ Full CRUD operations (add, list, edit priority or description, remove, done)
 - 💾 Persistent JSON storage
 - 🎨 Color-coded output with clean formatting
@@ -61,6 +61,14 @@ todo -l --high --pending  # HIGH priority tasks that are TODO
 todo -l --medium --done   # MEDIUM priority tasks that are DONE
 ```
 
+#### Search tasks
+```bash
+todo -s milk              # Tasks whose description contains "milk" (case-insensitive)
+todo --search buy milk    # All words after -s form the search text
+todo -l -p --high -s milk # As a filter of todo -l: -s must come last
+todo -arch -s report      # Search the archive
+```
+
 #### Mark task as done
 ```bash
 todo -d 1                 # Mark task #1 as done
@@ -101,6 +109,7 @@ markers are stripped, so a pasted checklist works as-is.
 ```bash
 todo -arch                # Show archived done tasks (also --archive, -A)
 todo --archive --high     # Same priority filters as todo -l
+todo -arch -s report      # Search the archive
 ```
 The first `todo -n` of each day moves tasks finished on earlier days to the archive,
 so `todo -l` only shows open tasks and the ones you finished today.
