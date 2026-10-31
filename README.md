@@ -96,6 +96,15 @@ The first `todo -n` of each day moves tasks finished on earlier days to the arch
 so `todo -l` only shows open tasks and the ones you finished today.
 `todo -d <id>` on an archived task marks it not done and brings it back to the list.
 
+#### Undo the last change
+```bash
+todo -r 4
+todo -u                   # ↩️  Undid: removed #4 Buy milk (also --undo)
+```
+Before every change the task file is copied to `tasks.json.bak`; `todo -u` puts that copy back.
+There is one level of undo, so a second `todo -u` right after says `❌ Nothing to undo`.
+If `tasks.json` ever becomes unreadable, `todo -u` restores the backup as well.
+
 #### Daily popup with HIGH priority tasks
 ```bash
 todo -n                   # Desktop popup listing pending HIGH priority tasks

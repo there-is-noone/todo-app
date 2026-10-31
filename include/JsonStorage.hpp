@@ -12,5 +12,7 @@ private:
     void save(const std::vector<Task>& Tasks) override;
     const std::string& path() const;
     bool hasBackup() const;
+    // Puts <file>.bak back in place; false if there is no backup. change says what was undone, if known
+    bool undo(std::string& change);
     ~JsonStorage() override;
 };

@@ -77,7 +77,8 @@ void App::printHelp(int argc,char* argv[]) const {
         "  -d, --done      Mark task as done\n"
         "  -e, --edit      Edit the priority of a task\n"
         "  -n, --notify    Popup with HIGH priority tasks (once a day)\n"
-        "  -q, --queue     Add a checklist whose steps appear one by one\n\n"
+        "  -q, --queue     Add a checklist whose steps appear one by one\n"
+        "  -u, --undo      Undo the last change\n\n"
         "More help:\n"
         "  todo -h [add | a]\n"
         "  todo -h [remove | r] \n"
@@ -86,7 +87,8 @@ void App::printHelp(int argc,char* argv[]) const {
         "  todo -h [done | d]\n"
         "  todo -h [edit | e]\n"
         "  todo -h [notify | n]\n"
-        "  todo -h [queue | q]\n\n";
+        "  todo -h [queue | q]\n"
+        "  todo -h [undo | u]\n\n";
     }
     else {
         std::string command=argv[2];
@@ -212,9 +214,24 @@ void App::printHelp(int argc,char* argv[]) const {
     "When stdin is a terminal, type one step per line and finish\n"
     "with an empty line.\n";
         }
+        else if (command=="undo" || command=="u") {
+            std::cout <<
+    "UNDO COMMAND\n"
+    "Usage:\n"
+    "todo -u\n\n"
+    "Description:\n"
+    "Takes back the last change (add, done, edit, remove, queue, archive).\n"
+    "Before every change the task file is copied to tasks.json.bak and\n"
+    "todo -u puts that copy back. There is one level of undo: a second\n"
+    "todo -u right after it says there is nothing to undo.\n"
+    "It also restores the backup when tasks.json can no longer be read.\n\n"
+    "Example:\n"
+    "todo -r 4\n"
+    "todo -u          # ↩️  Undid: removed #4 Buy milk\n";
+        }
         else {
             std::cout << "Unknown help topic. Use:\n";
-            std::cout << "todo -h add|remove|list|archive|done|edit|notify|queue\n";
+            std::cout << "todo -h add|remove|list|archive|done|edit|notify|queue|undo\n";
         }
     }
     }

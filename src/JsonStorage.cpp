@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sstream>
 #include <filesystem>
+#include <algorithm>
 #include <cstdlib>
 #include "json.hpp"
 #include <iostream>
@@ -69,6 +70,58 @@ static std::vector<Task> readTasks(const std::string& path) {
         throw StorageError("Could not read " + path + ": " + shortReason(e), true);
     }
     return tasks;
+}
+
+// Describes what restoring `before` over `now` takes back, e.g. "removed #4 Buy milk"; empty if unclear
+static std::string describeChange(const std::vector<Task>& now, const std::vector<Task>& before) {
+    auto find = [](const std::vector<Task>& tasks, int id) -> const Task* {
+        for (const auto& task : tasks) {
+            if (task.getId() == id) return &task;
+        }
+        return nullptr;
+    };
+    std::vector<const Task*> added, removed, done, undone, edited, archived;
+    for (const auto& task : now) {
+        const Task* old = find(before, task.getId());
+        if (!old) {
+            added.push_back(&task);
+            continue;
+        }
+        // Step numbers and hidden flags only change as a side effect, so they are not compared
+        if (task.isDone() != old->isDone()) {
+            (task.isDone() ? done : undone).push_back(&task);
+        } else if (task.isArchived() != old->isArchived()) {
+            archived.push_back(&task);
+        } else if (task.getPriority() != old->getPriority() || task.getDescription() != old->getDescription()) {
+            edited.push_back(&task);
+        }
+    }
+    for (const auto& task : before) {
+        if (!find(now, task.getId())) removed.push_back(&task);
+    }
+
+    auto name = [](const Task* task) { return "#" + std::to_string(task->getId()) + " " + task->getDescription(); };
+    auto count = [](size_t n) { return std::to_string(n) + " task" + (n == 1 ? "" : "s"); };
+    size_t kinds = !added.empty() + !removed.empty() + !done.empty() + !undone.empty() + !edited.empty() + !archived.empty();
+    if (kinds != 1) return "";
+
+    if (!added.empty()) {
+        if (added.size() == 1) return "added " + name(added.front());
+        const std::string& queue = added.front()->getQueue();
+        bool sameQueue = !queue.empty() && std::all_of(added.begin(), added.end(),
+                             [&](const Task* task) { return task->getQueue() == queue; });
+        if (sameQueue) return "added queue \"" + queue + "\" (" + std::to_string(added.size()) + " steps)";
+        return "added " + count(added.size());
+    }
+    if (!removed.empty()) return "removed " + (removed.size() == 1 ? name(removed.front()) : count(removed.size()));
+    if (!done.empty()) return "marked " + (done.size() == 1 ? name(done.front()) : count(done.size())) + " as done";
+    if (!undone.empty()) return "marked " + (undone.size() == 1 ? name(undone.front()) : count(undone.size())) + " as not done";
+    if (!archived.empty()) return "archived " + count(archived.size());
+    if (edited.size() == 1) {
+        const Task* old = find(before, edited.front()->getId());
+        return "edited #" + std::to_string(old->getId()) + " " + old->getDescription();
+    }
+    return "edited " + count(edited.size());
 }
 
 JsonStorage::JsonStorage(const std::string& name) {
@@ -140,6 +193,33 @@ const std::string& JsonStorage::path() const {
 bool JsonStorage::hasBackup() const {
     std::error_code ec;
     return std::filesystem::exists(FileName + ".bak", ec);
+}
+
+bool JsonStorage::undo(std::string& change) {
+    std::string backupName = FileName + ".bak";
+    if (!hasBackup()) return false;
+
+    // A broken backup would replace good data with garbage, so it is never restored
+    std::vector<Task> before;
+    try {
+        before = readTasks(backupName);
+    } catch (const StorageError& e) {
+        throw StorageError(std::string(e.what()) + " (nothing was restored)");
+    }
+    change.clear();
+    try {
+        change = describeChange(readTasks(FileName), before);
+    } catch (const StorageError&) {
+        // The current file is unreadable; restoring the backup is exactly what is wanted
+    }
+
+    // Renaming uses the backup up, so there is only one level of undo
+    std::error_code ec;
+    std::filesystem::rename(backupName, FileName, ec);
+    if (ec) {
+        throw StorageError("Could not restore " + backupName + ": " + ec.message());
+    }
+    return true;
 }
 
 void JsonStorage::save(const std::vector<Task>& Tasks) {
