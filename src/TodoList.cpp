@@ -3,6 +3,7 @@
 #include "Task.hpp"
 #include "colors.hpp"
 #include <algorithm>
+#include <cctype>
 
 
 Task* TodoList::findById(int Id) {
@@ -84,17 +85,56 @@ int TodoList::archiveDone(const std::string& before) {
     return count;
 }
 
+// Deletes archived tasks finished before the given date (tasks without a date count as old)
+int TodoList::clearArchive(const std::string& before) {
+    auto old = [&](const Task& task) { return task.isArchived() && task.getDoneDate() < before; };
+    int count = std::count_if(TaskList.begin(), TaskList.end(), old);
+    if (count > 0) {
+        TaskList.erase(std::remove_if(TaskList.begin(), TaskList.end(), old), TaskList.end());
+        storage.save(TaskList);
+    }
+    return count;
+}
+
 void TodoList::removeTask(int Id) {
     for (auto it=TaskList.begin(); it!=TaskList.end(); ++it) {
         if (it->getId() == Id) {
+            std::string queue = it->getQueue();
+            bool wasCurrent = it->isQueued() && !it->isHidden() && !it->isDone();
             TaskList.erase(it);
+            if (!queue.empty()) {
+                renumberQueue(queue);
+                // Removing the visible step of a queue reveals the next one, like finishing it would
+                if (wasCurrent) {
+                    Task* next = nextInQueue(queue);
+                    if (next && next->isHidden()) {
+                        next->setHidden(false);
+                    }
+                }
+            }
             storage.save(TaskList);
             return;
         }
     }
 }
 
-std::string TodoList::showAllTasks(bool showPending, bool showDone, bool filterByPriority, Task::Priority priorityFilter, bool showHidden, bool showArchived) {
+// Numbers the remaining steps of a queue 1..n again, keeping their order
+void TodoList::renumberQueue(const std::string& name) {
+    std::vector<Task*> steps;
+    for (auto& task : TaskList) {
+        if (task.getQueue() == name) steps.push_back(&task);
+    }
+    std::sort(steps.begin(), steps.end(), [](const Task* a, const Task* b) {
+        if (a->getStep() != b->getStep()) return a->getStep() < b->getStep();
+        return a->getId() < b->getId();
+    });
+    int step = 1;
+    for (Task* task : steps) {
+        task->setStep(step++);
+    }
+}
+
+std::string TodoList::showAllTasks(bool showPending, bool showDone, bool filterByPriority, Task::Priority priorityFilter, bool showHidden, bool showArchived, const std::string& search) {
     if (TaskList.empty()) {
         return "\n" CYAN "📋 No tasks yet!\n" RESET
                "   Add one with: ./todo -a \"task\" [priority]\n\n";
@@ -120,6 +160,15 @@ std::string TodoList::showAllTasks(bool showPending, bool showDone, bool filterB
         // Priority filter
         if (filterByPriority && task.getPriority() != priorityFilter) continue;
 
+        // Search filter: case-insensitive substring of the description
+        if (!search.empty()) {
+            auto lower = [](std::string str) {
+                for (auto& c : str) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                return str;
+            };
+            if (lower(task.getDescription()).find(lower(search)) == std::string::npos) continue;
+        }
+
         filtered.push_back(task);
     }
 
@@ -127,14 +176,16 @@ std::string TodoList::showAllTasks(bool showPending, bool showDone, bool filterB
         return "\n--- No matching tasks ---\n\n";
     }
 
-    // Sort by priority
+    // Sort by priority, then queue and step; ties go by ID so the newest task is last
     std::sort(filtered.begin(), filtered.end(),
     [](const Task& a, const Task& b) {
         if (a.getPriority() != b.getPriority())
             return a.getPriority() > b.getPriority();
         if (a.getQueue() != b.getQueue())
             return a.getQueue() < b.getQueue();
-        return a.getStep() < b.getStep();
+        if (a.getStep() != b.getStep())
+            return a.getStep() < b.getStep();
+        return a.getId() < b.getId();
     });
 
     std::string result;
@@ -204,4 +255,18 @@ std::vector<Task> TodoList::pendingTasks(Task::Priority priority) const {
 
 int TodoList::getNextId() {
     return nextId++;
+}
+
+void TodoList::editTask(int id, const std::string& description, Task::Priority priority) {
+    Task* task = findById(id);
+    if (!task) {
+        return;
+    }
+    task->setDescription(description);
+    task->setPriority(priority);
+    storage.save(TaskList);
+}
+
+const std::vector<Task>& TodoList::getTasks() const {
+    return TaskList;
 }

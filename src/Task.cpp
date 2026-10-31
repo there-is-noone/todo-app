@@ -22,6 +22,10 @@ void Task::setPriority(Priority p) {
     priority_ = p;
 }
 
+void Task::setStep(int step) {
+    step_ = step;
+}
+
 void Task::setHidden(bool is_hidden) {
     hidden_ = is_hidden;
 }
@@ -84,5 +88,18 @@ std::string Task::today() {
     std::time_t now = std::time(nullptr);
     char buffer[11];
     std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", std::localtime(&now));
+    return buffer;
+}
+
+// The date `days` days before today, in the same format as today()
+std::string Task::daysAgo(int days) {
+    std::time_t now = std::time(nullptr);
+    std::tm date = *std::localtime(&now);
+    date.tm_mday -= days;
+    date.tm_hour = 12;    // midday, so a daylight saving switch cannot move the date
+    date.tm_isdst = -1;
+    std::mktime(&date);
+    char buffer[11];
+    std::strftime(buffer, sizeof(buffer), "%Y-%m-%d", &date);
     return buffer;
 }
