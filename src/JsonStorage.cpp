@@ -264,10 +264,11 @@ void JsonStorage::save(const std::vector<Task>& Tasks) {
 
     // One level of backup, restored by todo -u
     std::error_code ec;
-    if (std::filesystem::exists(FileName, ec)) {
+    if (!backedUp && std::filesystem::exists(FileName, ec)) {
         std::filesystem::copy_file(FileName, FileName + ".bak",
                                    std::filesystem::copy_options::overwrite_existing, ec);
     }
+    backedUp = true;
 
     // Write a temp file and rename it over the real one, so a crash never leaves half a file
     std::string tmpName = FileName + ".tmp";

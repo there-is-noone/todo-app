@@ -10,6 +10,8 @@
 #include <vector>
 #include <cctype>
 #include <algorithm>
+#include <csignal>
+#include <sstream>
 #include "colors.hpp"
 
 extern char** environ;
@@ -33,21 +35,17 @@ int App::run(int argc, char* argv[]) {
             handleList(argc,argv,true);
         }
     }
+    else if (command=="--search" || command=="-s") {
+        // Start at argv[1] so handleList sees -s itself and takes the rest as the query
+        handleList(argc,argv,false,1);
+    }
     else if (command=="--add" || command=="-a") {
         handleAdd(argc,argv);
     }
     else if (command=="--remove" || command=="-r") {
-        if (argc<3) {
-            printDefault();
-            return exitCode;
-        }
         handleRemove(argc,argv);
     }
     else if (command=="--done" || command=="-d") {
-        if (argc<3) {
-            printDefault();
-            return exitCode;
-        }
         handleDone(argc,argv);
     }
     else if (command=="--edit" || command=="-e") {
@@ -58,6 +56,16 @@ int App::run(int argc, char* argv[]) {
     }
     else if (command=="--queue" || command=="-q") {
         handleQueue(argc,argv);
+    }
+    else if (command=="--info" || command=="-i") {
+        handleInfo(argc,argv);
+    }
+    else if (command=="--count" || command=="-c") {
+        printCount();
+    }
+    else if (command=="--ids") {
+        // Hidden helper for shell completion
+        printIds();
     }
     else {
         printDefault();
@@ -70,10 +78,164 @@ std::ostream& App::error() {
     return std::cerr;
 }
 
-void App::printDefault() const {
-    std::cout<< "Unknown or missing command. Use --help" << std::endl;
+// Plain non-negative number, no signs or trailing junk
+static bool parseNumber(const std::string& str, int& number) {
+    if (str.empty() || str.size() > 9) return false;
+    for (char c : str) {
+        if (!std::isdigit(static_cast<unsigned char>(c))) return false;
+    }
+    number = std::stoi(str);
+    return true;
 }
-void App::printHelp(int argc,char* argv[]) const {
+
+// Reads IDs and ranges ("4", "2-5") from argv[first..]. Bad arguments print an error and are
+// skipped; duplicates are dropped so a task is never toggled twice.
+std::vector<int> App::parseIds(int argc, char* argv[], int first) {
+    std::vector<int> ids;
+    for (int i = first; i < argc; i++) {
+        std::string arg = argv[i];
+        size_t dash = arg.find('-', 1);
+        int from, to;
+        if (!parseNumber(arg.substr(0, dash), from)
+            || !parseNumber(dash == std::string::npos ? arg : arg.substr(dash + 1), to)) {
+            error() << RED "❌ Invalid ID: " << arg << "\n" RESET;
+            continue;
+        }
+        if (from > to || to - from >= 1000) {
+            error() << RED "❌ Invalid range: " << arg << "\n" RESET;
+            continue;
+        }
+        for (int id = from; id <= to; id++) {
+            if (std::find(ids.begin(), ids.end(), id) == ids.end()) ids.push_back(id);
+        }
+    }
+    return ids;
+}
+
+// IDs from the command line; without any, the user picks them when stdin is a terminal
+std::vector<int> App::idsOrPick(int argc, char* argv[], const char* flag) {
+    if (argc >= 3) return parseIds(argc, argv, 2);
+    if (!isatty(STDIN_FILENO)) {
+        error() << RED "❌ Usage: todo " << flag << " <id>...\n" RESET;
+        return {};
+    }
+    return pickIds();
+}
+
+static bool inPath(const std::string& program) {
+    const char* path = std::getenv("PATH");
+    if (!path) return false;
+    std::stringstream dirs(path);
+    std::string dir;
+    while (std::getline(dirs, dir, ':')) {
+        if (dir.empty()) dir = ".";
+        if (access((dir + "/" + program).c_str(), X_OK) == 0) return true;
+    }
+    return false;
+}
+
+// Runs fzf on the given lines and collects the chosen ones. Spawned directly (no shell),
+// like notify-send. Returns fzf's exit code (0 = picked), or -1 if it could not be started.
+static int runFzf(const std::string& lines, std::string& picked) {
+    int in[2], out[2];
+    if (pipe(in) != 0) return -1;
+    if (pipe(out) != 0) {
+        close(in[0]);
+        close(in[1]);
+        return -1;
+    }
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_adddup2(&actions, in[0], STDIN_FILENO);
+    posix_spawn_file_actions_adddup2(&actions, out[1], STDOUT_FILENO);
+    posix_spawn_file_actions_addclose(&actions, in[0]);
+    posix_spawn_file_actions_addclose(&actions, in[1]);
+    posix_spawn_file_actions_addclose(&actions, out[0]);
+    posix_spawn_file_actions_addclose(&actions, out[1]);
+    const char* args[] = {"fzf", "--multi", "--prompt=Task> ",
+                          "--header=TAB selects several, ENTER confirms", nullptr};
+    pid_t pid;
+    int spawned = posix_spawnp(&pid, "fzf", &actions, nullptr, const_cast<char* const*>(args), environ);
+    posix_spawn_file_actions_destroy(&actions);
+    close(in[0]);
+    close(out[1]);
+    if (spawned != 0) {
+        close(in[1]);
+        close(out[0]);
+        return -1;
+    }
+
+    // fzf may quit before reading everything, which must not kill us with SIGPIPE
+    std::signal(SIGPIPE, SIG_IGN);
+    size_t written = 0;
+    while (written < lines.size()) {
+        ssize_t n = write(in[1], lines.data() + written, lines.size() - written);
+        if (n <= 0) break;
+        written += n;
+    }
+    close(in[1]);
+
+    char buffer[4096];
+    ssize_t n;
+    while ((n = read(out[0], buffer, sizeof(buffer))) > 0) picked.append(buffer, n);
+    close(out[0]);
+
+    int status = 0;
+    waitpid(pid, &status, 0);
+    return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+}
+
+// Lets the user choose pending tasks with fzf, or from a numbered list when fzf is missing
+std::vector<int> App::pickIds() {
+    std::string lines;
+    for (const auto& task : todo.getTasks()) {
+        if (task.isDone() || task.isHidden() || task.isArchived()) continue;
+        lines += std::to_string(task.getId()) + "\t" + task.getDescription() + "\n";
+    }
+    if (lines.empty()) {
+        std::cout << CYAN "📋 No pending tasks\n" RESET;
+        return {};
+    }
+
+    std::string input;
+    int fzf = inPath("fzf") ? runFzf(lines, input) : -1;
+    if (fzf == -1) {
+        std::cout << BLUE "📋 Pending tasks:\n" RESET;
+        for (const auto& task : todo.getTasks()) {
+            if (task.isDone() || task.isHidden() || task.isArchived()) continue;
+            std::cout << "  #" << task.getId() << " " << task.getDescription() << "\n";
+        }
+        std::cout << "Enter ID: ";
+        std::getline(std::cin, input);
+    } else if (fzf != 0) {
+        // Picker closed without a choice
+        exitCode = 1;
+        return {};
+    }
+
+    // fzf prints whole "id<TAB>description" lines, the prompt takes IDs and ranges
+    std::vector<std::string> words;
+    std::stringstream lineStream(input);
+    std::string line;
+    while (std::getline(lineStream, line)) {
+        if (fzf == 0) line = line.substr(0, line.find('\t'));
+        std::stringstream wordStream(line);
+        std::string word;
+        while (wordStream >> word) words.push_back(word);
+    }
+    if (words.empty()) {
+        exitCode = 1;
+        return {};
+    }
+    std::vector<char*> args;
+    for (auto& word : words) args.push_back(word.data());
+    return parseIds(static_cast<int>(args.size()), args.data(), 0);
+}
+
+void App::printDefault() {
+    error() << "Unknown or missing command. Use --help" << std::endl;
+}
+void App::printHelp(int argc,char* argv[]) {
     if (argc<3){
         std::cout <<
         "Todo CLI - Help\n\n"
@@ -82,22 +244,28 @@ void App::printHelp(int argc,char* argv[]) const {
         "Commands:\n"
         "  -a, --add       Add a new task\n"
         "  -l, --list      Show all tasks\n"
+        "  -s, --search    Show tasks whose description contains a text\n"
         "  -arch, --archive Show archived done tasks\n"
-        "  -r, --remove    Remove a task\n"
-        "  -d, --done      Mark task as done\n"
-        "  -e, --edit      Edit the priority of a task\n"
+        "  -r, --remove    Remove tasks\n"
+        "  -d, --done      Mark tasks as done\n"
+        "  -e, --edit      Edit the priority or description of a task\n"
         "  -n, --notify    Popup with HIGH priority tasks (once a day)\n"
         "  -q, --queue     Add a checklist whose steps appear one by one\n"
+        "  -i, --info      Show all details of a task\n"
+        "  -c, --count     Short pending count for a shell prompt\n"
         "  -u, --undo      Undo the last change\n\n"
         "More help:\n"
         "  todo -h [add | a]\n"
         "  todo -h [remove | r] \n"
         "  todo -h [list | l]\n"
+        "  todo -h [search | s]\n"
         "  todo -h [archive | arch]\n"
         "  todo -h [done | d]\n"
         "  todo -h [edit | e]\n"
         "  todo -h [notify | n]\n"
         "  todo -h [queue | q]\n"
+        "  todo -h [info | i]\n"
+        "  todo -h [count | c]\n"
         "  todo -h [undo | u]\n\n"
         "Data file:\n"
         "  TODO_FILE=/path/tasks.json todo ...   Use another task file\n\n";
@@ -114,6 +282,8 @@ void App::printHelp(int argc,char* argv[]) const {
 "Arguments:\n"
 "description   The task description (can contain spaces)\n"
 "priority      Optional: low, medium, high (default: low)\n"
+"              Only the last word counts as priority, so\n"
+"              todo -a call high school adds \"call high school\".\n\n"
 
 "Examples:\n"
 "todo -a \"Buy milk\"\n"
@@ -126,13 +296,17 @@ void App::printHelp(int argc,char* argv[]) const {
             std::cout <<
                 "REMOVE COMMAND\n"
                 "Usage:\n"
-                "todo -r <id>\n\n"
+                "todo -r <id>...\n\n"
                 "Description:\n"
-                "Removes a task by its ID.\n\n"
+                "Removes one or more tasks by their ID.\n\n"
                 "Arguments:\n"
-                "id    The ID of the task to remove\n\n"
-                "Example:\n"
-                "todo -r 3\n";
+                "id    The ID of a task to remove, or a range like 2-5\n"
+                "Without an ID, in a terminal, pick the tasks with fzf (if it is\n"
+                "installed) or type them at the Enter ID: prompt.\n\n"
+                "Examples:\n"
+                "todo -r 3\n"
+                "todo -r 1 4 7\n"
+                "todo -r 1 3-4\n";
         }
         else if (command == "list" || command =="l") {
             std::cout <<
@@ -145,19 +319,41 @@ void App::printHelp(int argc,char* argv[]) const {
                "todo -l --medium           Show only MEDIUM priority\n"
                "todo -l --low              Show only LOW priority\n"
                "todo -l --queued (-q)      Also show queued steps not revealed yet\n"
-               "todo -l --archive (-arch)  Show archived tasks instead\n\n"
+               "todo -l --archive (-arch)  Show archived tasks instead\n"
+               "todo -l --search (-s) <text...>  Only tasks containing the text\n"
+               "                           (must come last, takes the rest)\n\n"
                "Combine filters:\n"
                "todo -l -p --high          Show HIGH priority tasks that are TODO\n\n"
                "Examples:\n"
                "todo -l\n"
                "todo -l --pending\n"
-               "todo -l --high --pending\n";       }
+               "todo -l --high --pending\n"
+               "todo -l -p --high -s milk\n";       }
+        else if (command == "search" || command == "s") {
+            std::cout <<
+               "SEARCH COMMAND\n"
+               "Usage:\n"
+               "todo -s <text...>\n"
+               "todo --search <text...>\n\n"
+               "Description:\n"
+               "Lists the tasks whose description contains the text\n"
+               "(case-insensitive), in the same format as todo -l.\n"
+               "All arguments after -s form the search text.\n"
+               "It also works as a filter of todo -l and todo -arch,\n"
+               "as long as -s comes last.\n\n"
+               "Examples:\n"
+               "todo -s milk\n"
+               "todo -s buy milk\n"
+               "todo -l -p --high -s milk\n"
+               "todo -arch -s report\n";
+        }
         else if (command == "archive" || command == "arch") {
             std::cout <<
                "ARCHIVE COMMAND\n"
                "Usage:\n"
                "todo -arch                 Show archived tasks\n"
                "todo --archive --high      Show archived HIGH priority tasks\n"
+               "todo -arch -s <text...>    Search the archive\n"
                "todo -arch --clear <days>  Delete archived tasks finished more than <days> days ago\n\n"
                "Description:\n"
                "Done tasks are moved to the archive by the daily todo -n run,\n"
@@ -174,26 +370,38 @@ void App::printHelp(int argc,char* argv[]) const {
             std::cout <<
                 "DONE COMMAND\n"
                 "Usage:\n"
-                "todo -d <id>\n\n"
+                "todo -d <id>...\n\n"
                 "Description:\n"
-                "Marks a task as completed.\n\n"
+                "Marks one or more tasks as completed (a done task is marked\n"
+                "as not done again). IDs are handled in the given order.\n\n"
                 "Arguments:\n"
-                "id    The ID of the task to mark as done\n\n"
-                "Example:\n"
-                "todo -d 2\n";
+                "id    The ID of a task to mark as done, or a range like 2-5\n"
+                "Without an ID, in a terminal, pick the tasks with fzf (if it is\n"
+                "installed) or type them at the Enter ID: prompt.\n\n"
+                "Examples:\n"
+                "todo -d 2\n"
+                "todo -d 1 4 7\n"
+                "todo -d 2-5\n";
         }
         else if (command=="edit" || command=="e") {
             std::cout <<
     "EDIT COMMAND\n"
     "Usage:\n"
-    "todo -e <id> <priority>\n\n"
+    "todo -e <id> <priority>\n"
+    "todo -e <id> <description>\n"
+    "todo -e <id> <priority> <description>\n"
+    "todo -e <id> <description> <priority>\n\n"
     "Description:\n"
-    "Changes the priority of an existing task.\n\n"
+    "Changes the priority and/or the description of an existing task.\n\n"
     "Arguments:\n"
-    "id        The ID of the task to edit\n"
-    "priority  New priority: low, medium, high\n\n"
-    "Example:\n"
-    "todo -e 3 high\n";
+    "id           The ID of the task to edit\n"
+    "priority     New priority: low, medium, high (first or last argument)\n"
+    "description  New description, all other arguments (can contain spaces)\n\n"
+    "Examples:\n"
+    "todo -e 3 high\n"
+    "todo -e 3 \"Buy oat milk\"\n"
+    "todo -e 3 high \"Buy oat milk\"\n"
+    "todo -e 3 Buy oat milk high\n";
         }
         else if (command=="notify" || command=="n") {
             std::cout <<
@@ -223,7 +431,8 @@ void App::printHelp(int argc,char* argv[]) const {
     "Leading \"- \", \"- [ ] \", \"* \" and \"1. \" markers are removed.\n\n"
     "Arguments:\n"
     "name      Name of the queue (can contain spaces)\n"
-    "priority  Optional: low, medium, high (default: low)\n\n"
+    "priority  Optional: low, medium, high (default: low),\n"
+    "          only taken from the last argument\n\n"
     "Examples:\n"
     "todo -q \"Phase 0 setup\" medium < phase0.txt\n"
     "printf 'Step one\\nStep two\\n' | todo -q Demo high\n\n"
@@ -246,12 +455,85 @@ void App::printHelp(int argc,char* argv[]) const {
     "todo -r 4\n"
     "todo -u          # ↩️  Undid: removed #4 Buy milk\n";
         }
+        else if (command=="info" || command=="i") {
+            std::cout <<
+    "INFO COMMAND\n"
+    "Usage:\n"
+    "todo -i <id>...\n\n"
+    "Description:\n"
+    "Shows the full record of a task: ID, description, priority,\n"
+    "status (TODO, DONE, QUEUED or ARCHIVED), queue name and step\n"
+    "if it belongs to a queue, and the date it was done.\n\n"
+    "Arguments:\n"
+    "id    The ID of a task, or a range like 2-5\n"
+    "Without an ID, in a terminal, pick the task with fzf (if it is\n"
+    "installed) or type it at the Enter ID: prompt.\n\n"
+    "Example:\n"
+    "todo -i 3\n";
+        }
+        else if (command=="count" || command=="c") {
+            std::cout <<
+    "COUNT COMMAND\n"
+    "Usage:\n"
+    "todo -c\n"
+    "todo --count\n\n"
+    "Description:\n"
+    "Prints one short line for a shell prompt: the number of pending\n"
+    "HIGH priority tasks and of all pending tasks, e.g. 🔥2 ⏳7,\n"
+    "or ✅0 when nothing is pending. Queued steps that are not\n"
+    "revealed yet are not counted. The line has no colours.\n\n"
+    "Example (~/.bashrc):\n"
+    "PS1='[$(todo -c)] \\w \\$ '\n";
+        }
         else {
-            std::cout << "Unknown help topic. Use:\n";
-            std::cout << "todo -h add|remove|list|archive|done|edit|notify|queue|undo\n";
+            error() << "Unknown help topic. Use:\n";
+            error() << "todo -h add|remove|list|search|archive|done|edit|notify|queue|info|count|undo\n";
         }
     }
     }
+// True for an empty or whitespace-only string
+static bool isBlank(const std::string& str) {
+    return str.find_first_not_of(" \t\r\n") == std::string::npos;
+}
+
+static std::string toLower(std::string str) {
+    for (auto& c : str) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return str;
+}
+
+// True for low, medium or high in any case
+static bool isPriorityWord(const std::string& arg) {
+    std::string word = toLower(arg);
+    return word == "low" || word == "medium" || word == "high";
+}
+
+struct DescriptionArgs {
+    std::string description;
+    bool hasPriority = false;
+    Task::Priority priority = Task::Priority::LOW;
+};
+
+// Joins argv[first..] into a description. Only the last argument (or the first one when
+// allowFirst is set) is taken as priority, so "call high school" stays a plain description.
+static DescriptionArgs splitDescription(int argc, char* argv[], int first, bool allowFirst=false) {
+    DescriptionArgs result;
+    int last = argc - 1;
+    if (first <= last && isPriorityWord(argv[last])) {
+        result.hasPriority = true;
+        result.priority = Task::parsePriority(toLower(argv[last]));
+        last--;
+    } else if (allowFirst && first <= last && isPriorityWord(argv[first])) {
+        result.hasPriority = true;
+        result.priority = Task::parsePriority(toLower(argv[first]));
+        first++;
+    }
+    for (int i = first; i <= last; i++) {
+        if (!result.description.empty()) result.description += " ";
+        result.description += argv[i];
+    }
+    return result;
+}
+
 void App::handleAdd(int argc, char* argv[]) {
     std::string description;
     std::string prioritystring;
@@ -261,38 +543,39 @@ void App::handleAdd(int argc, char* argv[]) {
         std::cout << "Enter description: ";
         std::getline(std::cin, description);
 
-        if (description.empty()) {
-            std::cout << RED "❌ Description cannot be empty\n" RESET;
+        if (isBlank(description)) {
+            error() << RED "❌ Description cannot be empty\n" RESET;
             return;
         }
         std::cout << "Enter priority (low/medium/high) [default: low]: ";
         std::getline(std::cin, prioritystring);
         if (!prioritystring.empty()) {
-            priority = Task::parsePriority(prioritystring);
+            priority = Task::parsePriority(toLower(prioritystring));
         }
     } else {
-        for (int i = 2; i < argc; i++) {
-            std::string arg = argv[i];
-            if (arg == "low" || arg == "medium" || arg == "high") {
-                priority = Task::parsePriority(arg);
-            } else {
-                if (!description.empty()) description += " ";
-                description += arg;
-            }
+        DescriptionArgs args = splitDescription(argc, argv, 2);
+        description = args.description;
+        priority = args.priority;
+        // Only priority words (e.g. todo -a high) leave no description
+        if (isBlank(description)) {
+            error() << RED "❌ Description cannot be empty\n" RESET;
+            return;
         }
     }
     todo.addTask(description, priority);
     std::cout << GREEN "✅ Task added: " RESET << description << "\n";
 }
 
-void App::handleList(int argc,char* argv[], bool showArchived) {
+void App::handleList(int argc,char* argv[], bool showArchived, int first) {
     Task::Priority priorityFilter = Task::Priority::HIGH;
     bool showPending = false;
     bool showDone = false;
     bool filterByPriority = false;
     bool showHidden = false;
+    bool searching = false;
+    std::string search;
 
-    for (int i = 2; i < argc; i++) {
+    for (int i = first; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "--archive" || arg == "-arch" || arg == "-A") {
             showArchived = true;
@@ -311,32 +594,36 @@ void App::handleList(int argc,char* argv[], bool showArchived) {
         } else if (arg == "--low") {
             priorityFilter = Task::Priority::LOW;
             filterByPriority = true;
+        } else if (arg == "--search" || arg == "-s") {
+            // Everything after -s is the search text
+            searching = true;
+            for (i++; i < argc; i++) {
+                if (!search.empty()) search += " ";
+                search += argv[i];
+            }
         }
     }
+    if (searching && isBlank(search)) {
+        error() << RED "❌ Usage: todo -s <text...>\n" RESET;
+        return;
+    }
     std::cout << "\n";
-    std::cout << todo.showAllTasks(showPending, showDone, filterByPriority, priorityFilter, showHidden, showArchived) << std::endl;
+    std::cout << todo.showAllTasks(showPending, showDone, filterByPriority, priorityFilter, showHidden, showArchived, search) << std::endl;
     std::cout << "\n";
 }
 
 void App::handleDone(int argc, char* argv[]) {
-    int id;
-    try {
-        id = std::stoi(argv[2]);
-    }
-    catch (const std::invalid_argument&) {
-        std::cout << RED "❌ Invalid ID: not a number\n" RESET;
-        return;
-    }
-    catch (const std::out_of_range&) {
-        std::cout << RED "❌ ID out of range\n" RESET;
-        return;
-    }
-
-    if (Task* task = todo.findById(id)) {
+    // IDs are handled in the given order, so "todo -d 5 6" can finish two steps of a queue
+    for (int id : idsOrPick(argc, argv, "-d")) {
+        if (!todo.findById(id)) {
+            error() << RED "❌ No task with ID " << id << "\n" RESET;
+            continue;
+        }
         todo.markTaskDone(id);
+        Task* task = todo.findById(id);
         if (!task->isDone()) {
             std::cout << YELLOW "↩️  Task " << id << " marked as not done\n" RESET;
-            return;
+            continue;
         }
         std::cout << GREEN "✅ Task " << id << " marked as done!\n" RESET;
         if (task->isQueued()) {
@@ -348,8 +635,6 @@ void App::handleDone(int argc, char* argv[]) {
                 std::cout << GREEN "🏁 Queue \"" << queue << "\" complete!\n" RESET;
             }
         }
-    } else {
-        std::cout << RED "❌ No task with ID " << id << "\n" RESET;
     }
 }
 
@@ -374,33 +659,25 @@ static std::string cleanStep(std::string line) {
 }
 
 void App::handleQueue(int argc, char* argv[]) {
-    std::string name;
-    Task::Priority priority = Task::Priority::LOW;
-    for (int i = 2; i < argc; i++) {
-        std::string arg = argv[i];
-        if (arg == "low" || arg == "medium" || arg == "high") {
-            priority = Task::parsePriority(arg);
-        } else {
-            if (!name.empty()) name += " ";
-            name += arg;
-        }
-    }
+    DescriptionArgs args = splitDescription(argc, argv, 2);
+    std::string name = args.description;
+    Task::Priority priority = args.priority;
 
     bool interactive = isatty(STDIN_FILENO);
-    if (name.empty()) {
+    if (isBlank(name)) {
         if (!interactive) {
-            std::cout << RED "❌ Usage: todo -q <name> [priority] < steps.txt\n" RESET;
+            error() << RED "❌ Usage: todo -q <name> [priority] < steps.txt\n" RESET;
             return;
         }
         std::cout << BLUE "📝 New Queue\n" RESET << "Enter queue name: ";
         std::getline(std::cin, name);
-        if (name.empty()) {
-            std::cout << RED "❌ Queue name cannot be empty\n" RESET;
+        if (isBlank(name)) {
+            error() << RED "❌ Queue name cannot be empty\n" RESET;
             return;
         }
     }
     if (todo.queueTotal(name) > 0) {
-        std::cout << RED "❌ A queue named \"" << name << "\" already exists\n" RESET;
+        error() << RED "❌ A queue named \"" << name << "\" already exists\n" RESET;
         return;
     }
 
@@ -419,7 +696,7 @@ void App::handleQueue(int argc, char* argv[]) {
     }
 
     if (steps.empty()) {
-        std::cout << RED "❌ No steps given\n" RESET;
+        error() << RED "❌ No steps given\n" RESET;
         return;
     }
     todo.addQueue(name, priority, steps);
@@ -428,30 +705,22 @@ void App::handleQueue(int argc, char* argv[]) {
 }
 
 void App::handleRemove(int argc, char* argv[]) {
-    int id;
-    try {
-        id = std::stoi(argv[2]);
-    }
-    catch (const std::invalid_argument&) {
-        std::cout << RED "❌ Invalid ID: not a number\n" RESET;
-        return;
-    }
-    catch (const std::out_of_range&) {
-        std::cout << RED "❌ ID out of range\n" RESET;
-        return;
-    }
-
-    if (todo.findById(id)) {
+    for (int id : idsOrPick(argc, argv, "-r")) {
+        Task* task = todo.findById(id);
+        if (!task) {
+            error() << RED "❌ No task with ID " << id << "\n" RESET;
+            continue;
+        }
+        // Copy the text first: removing the task invalidates the pointer
+        std::string description = task->getDescription();
         todo.removeTask(id);
-        std::cout << GREEN "✅ Task removed\n" RESET;
-    } else {
-        std::cout << RED "❌ No task with ID " << id << "\n" RESET;
+        std::cout << GREEN "✅ Task removed: " RESET << "#" << id << " " << description << "\n";
     }
 }
 
 void App::handleEdit(int argc, char* argv[]) {
     if (argc < 4) {
-        std::cout << RED "❌ Usage: todo -e <id> <priority>\n" RESET;
+        error() << RED "❌ Usage: todo -e <id> [priority] [description]\n" RESET;
         return;
     }
     int id;
@@ -459,29 +728,103 @@ void App::handleEdit(int argc, char* argv[]) {
         id = std::stoi(argv[2]);
     }
     catch (const std::invalid_argument&) {
-        std::cout << RED "❌ Invalid ID: not a number\n" RESET;
+        error() << RED "❌ Invalid ID: not a number\n" RESET;
         return;
     }
     catch (const std::out_of_range&) {
-        std::cout << RED "❌ ID out of range\n" RESET;
+        error() << RED "❌ ID out of range\n" RESET;
         return;
     }
 
-    std::string priorityStr = argv[3];
-    if (priorityStr != "low" && priorityStr != "medium" && priorityStr != "high") {
-        std::cout << RED "❌ Invalid priority. Use: low, medium, high\n" RESET;
+    Task* task = todo.findById(id);
+    if (!task) {
+        error() << RED "❌ No task with ID " << id << "\n" RESET;
         return;
     }
 
-    if (!todo.findById(id)) {
-        std::cout << RED "❌ No task with ID " << id << "\n" RESET;
+    // A priority word first or last, everything else is the new description
+    DescriptionArgs args = splitDescription(argc, argv, 3, true);
+    std::string priorityStr = Task::priorityToString(args.priority);
+    bool rename = argc - 3 > (args.hasPriority ? 1 : 0);
+    if (!rename) {
+        todo.editTaskPriority(id, args.priority);
+        std::cout << GREEN "✅ Task " << id << " priority updated to " RESET
+                  << YELLOW << priorityStr << RESET << "\n";
+        return;
+    }
+    if (isBlank(args.description)) {
+        error() << RED "❌ Description cannot be empty\n" RESET;
         return;
     }
 
-    Task::Priority newPriority = Task::parsePriority(priorityStr);
-    todo.editTaskPriority(id, newPriority);
-    std::cout << GREEN "✅ Task " << id << " priority updated to " RESET
-              << YELLOW << priorityStr << RESET << "\n";
+    Task::Priority newPriority = args.hasPriority ? args.priority : task->getPriority();
+    todo.editTask(id, args.description, newPriority);
+    std::cout << GREEN "✅ Task " << id << " updated: " RESET << args.description;
+    if (args.hasPriority) {
+        std::cout << " (priority " YELLOW << priorityStr << RESET ")";
+    }
+    std::cout << "\n";
+}
+
+void App::handleInfo(int argc, char* argv[]) {
+    bool first = true;
+    for (int id : idsOrPick(argc, argv, "-i")) {
+        const Task* task = todo.findById(id);
+        if (!task) {
+            error() << RED "❌ No task with ID " << id << "\n" RESET;
+            continue;
+        }
+        if (!first) std::cout << "\n";
+        first = false;
+
+        std::string priority = Task::priorityToString(task->getPriority());
+        for (auto& c : priority) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        const char* priorityColor = task->getPriority() == Task::Priority::HIGH ? RED
+                                  : task->getPriority() == Task::Priority::MEDIUM ? YELLOW : GRAY;
+
+        // Same precedence as the [STATUS] tag of todo -l
+        std::string status;
+        if (task->isArchived()) status = GRAY "ARCHIVED";
+        else if (task->isHidden()) status = GRAY "QUEUED";
+        else if (task->isDone()) status = GREEN "DONE";
+        else status = YELLOW "TODO";
+
+        std::cout << BLUE "📄 Task #" << id << "\n" RESET;
+        std::cout << "   Description: " << task->getDescription() << "\n";
+        std::cout << "   Priority:    " << priorityColor << priority << RESET "\n";
+        std::cout << "   Status:      " << status << RESET "\n";
+        if (task->isQueued()) {
+            std::cout << "   Queue:       " CYAN << task->getQueue() << RESET
+                      << " (step " << task->getStep() << "/" << todo.queueTotal(task->getQueue()) << ")\n";
+        }
+        if (!task->getDoneDate().empty()) {
+            std::cout << "   Done date:   " << task->getDoneDate() << "\n";
+        }
+    }
+}
+
+// One "id<TAB>description" line per task shown by todo -l, read by the shell completion
+void App::printIds() const {
+    for (const auto& task : todo.getTasks()) {
+        if (task.isHidden() || task.isArchived()) continue;
+        std::cout << task.getId() << "\t" << task.getDescription() << "\n";
+    }
+}
+
+// "🔥<pending HIGH> ⏳<all pending>" or "✅0", without colours so it fits in a prompt
+void App::printCount() const {
+    int high = 0;
+    int pending = 0;
+    for (const auto& task : todo.getTasks()) {
+        if (task.isDone() || task.isHidden() || task.isArchived()) continue;
+        pending++;
+        if (task.getPriority() == Task::Priority::HIGH) high++;
+    }
+    if (pending == 0) {
+        std::cout << "✅0\n";
+    } else {
+        std::cout << "🔥" << high << " ⏳" << pending << "\n";
+    }
 }
 
 // todo -arch --clear <days>: deletes archived tasks finished more than <days> days ago
@@ -546,13 +889,13 @@ void App::handleNotify(int argc, char* argv[]) {
         pid_t pid;
         if (posix_spawnp(&pid, "notify-send", nullptr, nullptr,
                          const_cast<char* const*>(args), environ) != 0) {
-            std::cout << RED "❌ Could not run notify-send (is libnotify installed?)\n" RESET;
+            error() << RED "❌ Could not run notify-send (is libnotify installed?)\n" RESET;
             return;
         }
         int status = 0;
         waitpid(pid, &status, 0);
         if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-            std::cout << RED "❌ notify-send failed\n" RESET;
+            error() << RED "❌ notify-send failed\n" RESET;
             return;
         }
     }

@@ -1,0 +1,73 @@
+#compdef todo
+# zsh completion for todo
+# Installed to share/zsh/site-functions/_todo by `sudo make install`.
+# Task IDs are read from the hidden `todo --ids` helper (one "id<TAB>description" per line).
+
+# Task IDs with their descriptions
+_todo_ids() {
+    local -a ids
+    local line
+    for line in ${(f)"$(${~words[1]} --ids 2>/dev/null)"}; do
+        ids+=("${line/$'\t'/:}")
+    done
+    _describe -t tasks 'task' ids
+}
+
+_todo() {
+    local -a commands priorities topics list_flags
+    commands=(
+        '-a:add a new task'              '--add:add a new task'
+        '-l:show all tasks'              '--list:show all tasks'
+        '-s:search tasks by text'        '--search:search tasks by text'
+        '-arch:show archived tasks'      '--archive:show archived tasks'
+        '-r:remove tasks'                '--remove:remove tasks'
+        '-d:mark tasks as done'          '--done:mark tasks as done'
+        '-e:edit priority or description' '--edit:edit priority or description'
+        '-i:show all details of a task'  '--info:show all details of a task'
+        '-c:pending count for a prompt'  '--count:pending count for a prompt'
+        '-n:popup with HIGH tasks'       '--notify:popup with HIGH tasks'
+        '-q:add a checklist queue'       '--queue:add a checklist queue'
+        '-u:undo the last change'        '--undo:undo the last change'
+        '-h:show help'                   '--help:show help'
+    )
+    priorities=(low medium high)
+    topics=(add remove list search archive done edit info count notify queue undo)
+    list_flags=(--pending -p --done -d --high --medium --low --queued -q --archive -arch --search -s)
+
+    if (( CURRENT == 2 )); then
+        _describe -t commands 'command' commands
+        return
+    fi
+
+    case $words[2] in
+        -h|--help)
+            (( CURRENT == 3 )) && compadd -a topics
+            ;;
+        -d|--done|-r|--remove|-i|--info)
+            _todo_ids
+            ;;
+        -e|--edit)
+            if (( CURRENT == 3 )); then
+                _todo_ids
+            else
+                compadd -a priorities
+            fi
+            ;;
+        -a|--add|-q|--queue)
+            # The priority comes after the description
+            (( CURRENT > 3 )) && compadd -a priorities
+            ;;
+        -l|--list|-arch|--archive|-A)
+            # Everything after -s is free search text
+            local search=${words[(I)(-s|--search)]}
+            (( search > 0 && search < CURRENT )) && return
+            [[ $words[2] == (-l|--list) ]] || list_flags+=(--clear)
+            compadd -a list_flags
+            ;;
+        -n|--notify)
+            compadd -- --force -f
+            ;;
+    esac
+}
+
+_todo "$@"

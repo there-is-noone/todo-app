@@ -70,6 +70,13 @@ private:
     std::streambuf* original = nullptr;
 };
 
+// Help never needs the tasks, so it works even when the task file is broken
+class NoStorage : public Storage {
+public:
+    std::vector<Task> load() override { return {}; }
+    void save(const std::vector<Task>&) override {}
+};
+
 // todo -u: puts the backup made before the last change back in place
 static int undoLastChange(JsonStorage& storage) {
     std::string change;
@@ -91,6 +98,13 @@ int main(int argc, char* argv[]) {
     bool noColor = noColorEnv && *noColorEnv;
     ColorFilter plainOut(std::cout, noColor || !isatty(STDOUT_FILENO));
     ColorFilter plainErr(std::cerr, noColor || !isatty(STDERR_FILENO));
+
+    if (argc > 1 && (std::string(argv[1]) == "-h" || std::string(argv[1]) == "--help")) {
+        NoStorage none;
+        TodoList todo(none);
+        App app(todo);
+        return app.run(argc,argv);
+    }
 
     JsonStorage storage("/data/tasks.json");
     try {

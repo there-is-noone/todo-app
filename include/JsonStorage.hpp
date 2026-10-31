@@ -6,6 +6,8 @@
 class JsonStorage : public Storage {
 private:
     std::string FileName;
+    // The backup is taken once per run, so todo -u undoes a whole command like todo -d 1 4 7
+    bool backedUp = false;
     public:
     explicit JsonStorage(const std::string& name);
     std::vector<Task> load() override;

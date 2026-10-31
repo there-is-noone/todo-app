@@ -3,6 +3,7 @@
 #include "Task.hpp"
 #include "colors.hpp"
 #include <algorithm>
+#include <cctype>
 
 
 Task* TodoList::findById(int Id) {
@@ -133,7 +134,7 @@ void TodoList::renumberQueue(const std::string& name) {
     }
 }
 
-std::string TodoList::showAllTasks(bool showPending, bool showDone, bool filterByPriority, Task::Priority priorityFilter, bool showHidden, bool showArchived) {
+std::string TodoList::showAllTasks(bool showPending, bool showDone, bool filterByPriority, Task::Priority priorityFilter, bool showHidden, bool showArchived, const std::string& search) {
     if (TaskList.empty()) {
         return "\n" CYAN "📋 No tasks yet!\n" RESET
                "   Add one with: ./todo -a \"task\" [priority]\n\n";
@@ -158,6 +159,15 @@ std::string TodoList::showAllTasks(bool showPending, bool showDone, bool filterB
 
         // Priority filter
         if (filterByPriority && task.getPriority() != priorityFilter) continue;
+
+        // Search filter: case-insensitive substring of the description
+        if (!search.empty()) {
+            auto lower = [](std::string str) {
+                for (auto& c : str) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                return str;
+            };
+            if (lower(task.getDescription()).find(lower(search)) == std::string::npos) continue;
+        }
 
         filtered.push_back(task);
     }
@@ -245,4 +255,18 @@ std::vector<Task> TodoList::pendingTasks(Task::Priority priority) const {
 
 int TodoList::getNextId() {
     return nextId++;
+}
+
+void TodoList::editTask(int id, const std::string& description, Task::Priority priority) {
+    Task* task = findById(id);
+    if (!task) {
+        return;
+    }
+    task->setDescription(description);
+    task->setPriority(priority);
+    storage.save(TaskList);
+}
+
+const std::vector<Task>& TodoList::getTasks() const {
+    return TaskList;
 }

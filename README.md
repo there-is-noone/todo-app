@@ -5,10 +5,11 @@ A lightweight Linux command-line todo list application in modern C++. Manage tas
 ## Features
 
 - 🎯 Priority-based task management (HIGH/MEDIUM/LOW)
-- 📋 Filter tasks by status (`--pending`, `--done`) or priority
-- ✏️ Full CRUD operations (add, list, edit, remove, done)
+- 📋 Filter tasks by status (`--pending`, `--done`) or priority, search by text (`-s`)
+- ✏️ Full CRUD operations (add, list, edit priority or description, remove, done)
 - 💾 Persistent JSON storage
 - 🎨 Color-coded output with clean formatting
+- ⌨️ Bash and zsh completion, including task IDs
 
 ## Quick Start
 
@@ -38,6 +39,7 @@ todo -h
 todo -a "Buy groceries"              # Default: LOW priority
 todo -a "Finish project" high        # HIGH priority
 todo -a "Read a book" medium         # MEDIUM priority
+todo -a call high school             # "call high school", LOW: only the last word counts as priority
  
 # Interactive mode (no arguments)
 todo -a
@@ -60,22 +62,49 @@ todo -l --high --pending  # HIGH priority tasks that are TODO
 todo -l --medium --done   # MEDIUM priority tasks that are DONE
 ```
 
+#### Search tasks
+```bash
+todo -s milk              # Tasks whose description contains "milk" (case-insensitive)
+todo --search buy milk    # All words after -s form the search text
+todo -l -p --high -s milk # As a filter of todo -l: -s must come last
+todo -arch -s report      # Search the archive
+```
+
 #### Mark task as done
 ```bash
 todo -d 1                 # Mark task #1 as done
 todo --done 3             # Mark task #3 as done
+todo -d 1 4 7             # Several tasks at once
+todo -d 2-5               # A range of IDs
 ```
+Each ID gets its own result line. Unknown IDs are reported, the others are still
+applied, and the exit code is 1 if any ID failed.
 
-#### Edit task priority
+Without an ID, `todo -d`, `todo -r` and `todo -i` let you pick from the pending tasks:
+with [fzf](https://github.com/junegunn/fzf) if it is installed (TAB selects several),
+otherwise from a numbered list and an `Enter ID:` prompt.
+
+#### Task details
+```bash
+todo -i 3                 # Full record of task #3 (also --info)
+```
+Shows the ID, description, priority, status (TODO/DONE/QUEUED/ARCHIVED), the queue
+name and step for queued tasks, and the date the task was done.
+
+#### Edit a task
 ```bash
 todo -e 2 high            # Change task #2 to HIGH priority
 todo --edit 5 low         # Change task #5 to LOW priority
+todo -e 3 "Buy oat milk"  # Rename task #3
+todo -e 3 high "Buy oat milk"   # Rename and change priority
+todo -e 3 Buy oat milk high     # Same: priority may be the first or the last word
 ```
 
 #### Remove a task
 ```bash
 todo -r 1                 # Delete task #1
 todo --remove 3           # Delete task #3
+todo -r 1 3-4             # Delete #1, #3 and #4
 ```
 #### Checklist queues
 ```bash
@@ -83,6 +112,7 @@ todo -q "Phase 0 setup" medium < steps.txt     # One step per line
 printf 'Create venv\nRun simulator\n' | todo -q Demo high
 todo -l --queued (-q)     # Also show steps that are not revealed yet
 ```
+As with `todo -a`, only the last argument is taken as priority.
 Only the current step of a queue is shown. Marking it done with `todo -d <id>`
 reveals the next one, until the queue is complete. Leading `- `, `- [ ] `, `* ` and `1. `
 markers are stripped, so a pasted checklist works as-is.
@@ -91,6 +121,7 @@ markers are stripped, so a pasted checklist works as-is.
 ```bash
 todo -arch                # Show archived done tasks (also --archive, -A)
 todo --archive --high     # Same priority filters as todo -l
+todo -arch -s report      # Search the archive
 todo -arch --clear 30     # Delete archived tasks finished more than 30 days ago
 ```
 The first `todo -n` of each day moves tasks finished on earlier days to the archive,
@@ -108,6 +139,15 @@ Before every change the task file is copied to `tasks.json.bak`; `todo -u` puts 
 There is one level of undo, so a second `todo -u` right after says `❌ Nothing to undo`.
 If `tasks.json` ever becomes unreadable, `todo -u` restores the backup as well.
 
+#### Pending count for your shell prompt
+```bash
+todo -c                   # 🔥2 ⏳7  (pending HIGH, all pending), ✅0 if nothing is pending
+```
+One short line without colours, so it can go straight into a prompt, e.g. in `~/.bashrc`:
+```bash
+PS1='[$(todo -c)] \w \$ '
+```
+
 #### Daily popup with HIGH priority tasks
 ```bash
 todo -n                   # Desktop popup listing pending HIGH priority tasks
@@ -123,6 +163,18 @@ systemctl --user daemon-reload
 systemctl --user enable --now todo-notify.service
 ```
 It runs `todo -n` on login, screen unlock and resume from suspend (GNOME, needs `notify-send` and `gdbus`).
+
+#### Shell completion
+`sudo make install` also installs completion scripts for bash
+(`share/bash-completion/completions/todo`) and zsh (`share/zsh/site-functions/_todo`).
+They complete commands and flags, help topics after `todo -h`, priorities, and task IDs
+with their descriptions after `-d`, `-r`, `-e` and `-i`:
+```bash
+todo -d <TAB>
+1  Buy milk    2  Call mom
+```
+Open a new shell after installing. With bash this needs the `bash-completion` package;
+without installing, try it with `source contrib/todo-completion.bash`.
 
 ---
 ## Data Storage
@@ -243,6 +295,9 @@ todo-app/
 │   └── Storage.hpp
 ├── external/
 │   └── json.hpp          # nlohmann/json library
+├── contrib/
+│   ├── todo-completion.bash  # bash completion
+│   └── _todo                 # zsh completion
 ├── CMakeLists.txt
 └── README.md
 ```
