@@ -80,7 +80,7 @@ void App::printHelp(int argc,char* argv[]) {
         "  -arch, --archive Show archived done tasks\n"
         "  -r, --remove    Remove a task\n"
         "  -d, --done      Mark task as done\n"
-        "  -e, --edit      Edit the priority of a task\n"
+        "  -e, --edit      Edit the priority or description of a task\n"
         "  -n, --notify    Popup with HIGH priority tasks (once a day)\n"
         "  -q, --queue     Add a checklist whose steps appear one by one\n\n"
         "More help:\n"
@@ -174,14 +174,21 @@ void App::printHelp(int argc,char* argv[]) {
             std::cout <<
     "EDIT COMMAND\n"
     "Usage:\n"
-    "todo -e <id> <priority>\n\n"
+    "todo -e <id> <priority>\n"
+    "todo -e <id> <description>\n"
+    "todo -e <id> <priority> <description>\n"
+    "todo -e <id> <description> <priority>\n\n"
     "Description:\n"
-    "Changes the priority of an existing task.\n\n"
+    "Changes the priority and/or the description of an existing task.\n\n"
     "Arguments:\n"
-    "id        The ID of the task to edit\n"
-    "priority  New priority: low, medium, high\n\n"
-    "Example:\n"
-    "todo -e 3 high\n";
+    "id           The ID of the task to edit\n"
+    "priority     New priority: low, medium, high (first or last argument)\n"
+    "description  New description, all other arguments (can contain spaces)\n\n"
+    "Examples:\n"
+    "todo -e 3 high\n"
+    "todo -e 3 \"Buy oat milk\"\n"
+    "todo -e 3 high \"Buy oat milk\"\n"
+    "todo -e 3 Buy oat milk high\n";
         }
         else if (command=="notify" || command=="n") {
             std::cout <<
@@ -459,7 +466,7 @@ void App::handleRemove(int argc, char* argv[]) {
 
 void App::handleEdit(int argc, char* argv[]) {
     if (argc < 4) {
-        error() << RED "❌ Usage: todo -e <id> <priority>\n" RESET;
+        error() << RED "❌ Usage: todo -e <id> [priority] [description]\n" RESET;
         return;
     }
     int id;
@@ -475,21 +482,34 @@ void App::handleEdit(int argc, char* argv[]) {
         return;
     }
 
-    std::string priorityStr = argv[3];
-    if (priorityStr != "low" && priorityStr != "medium" && priorityStr != "high") {
-        error() << RED "❌ Invalid priority. Use: low, medium, high\n" RESET;
-        return;
-    }
-
-    if (!todo.findById(id)) {
+    Task* task = todo.findById(id);
+    if (!task) {
         error() << RED "❌ No task with ID " << id << "\n" RESET;
         return;
     }
 
-    Task::Priority newPriority = Task::parsePriority(priorityStr);
-    todo.editTaskPriority(id, newPriority);
-    std::cout << GREEN "✅ Task " << id << " priority updated to " RESET
-              << YELLOW << priorityStr << RESET << "\n";
+    // A priority word first or last, everything else is the new description
+    DescriptionArgs args = splitDescription(argc, argv, 3, true);
+    std::string priorityStr = Task::priorityToString(args.priority);
+    bool rename = argc - 3 > (args.hasPriority ? 1 : 0);
+    if (!rename) {
+        todo.editTaskPriority(id, args.priority);
+        std::cout << GREEN "✅ Task " << id << " priority updated to " RESET
+                  << YELLOW << priorityStr << RESET << "\n";
+        return;
+    }
+    if (isBlank(args.description)) {
+        error() << RED "❌ Description cannot be empty\n" RESET;
+        return;
+    }
+
+    Task::Priority newPriority = args.hasPriority ? args.priority : task->getPriority();
+    todo.editTask(id, args.description, newPriority);
+    std::cout << GREEN "✅ Task " << id << " updated: " RESET << args.description;
+    if (args.hasPriority) {
+        std::cout << " (priority " YELLOW << priorityStr << RESET ")";
+    }
+    std::cout << "\n";
 }
 
 static std::filesystem::path notifyStampPath() {

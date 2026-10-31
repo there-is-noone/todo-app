@@ -29,6 +29,8 @@ public:
     std::vector<Task> pendingTasks(Task::Priority priority) const;
 
     int getNextId();
+    // Sets description and priority with a single save
+    void editTask(int id, const std::string& description, Task::Priority priority);
 
     private:
     std::vector<Task> TaskList;

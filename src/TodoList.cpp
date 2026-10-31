@@ -205,3 +205,13 @@ std::vector<Task> TodoList::pendingTasks(Task::Priority priority) const {
 int TodoList::getNextId() {
     return nextId++;
 }
+
+void TodoList::editTask(int id, const std::string& description, Task::Priority priority) {
+    Task* task = findById(id);
+    if (!task) {
+        return;
+    }
+    task->setDescription(description);
+    task->setPriority(priority);
+    storage.save(TaskList);
+}

@@ -6,7 +6,7 @@ A lightweight Linux command-line todo list application in modern C++. Manage tas
 
 - 🎯 Priority-based task management (HIGH/MEDIUM/LOW)
 - 📋 Filter tasks by status (`--pending`, `--done`) or priority
-- ✏️ Full CRUD operations (add, list, edit, remove, done)
+- ✏️ Full CRUD operations (add, list, edit priority or description, remove, done)
 - 💾 Persistent JSON storage
 - 🎨 Color-coded output with clean formatting
 
@@ -67,10 +67,13 @@ todo -d 1                 # Mark task #1 as done
 todo --done 3             # Mark task #3 as done
 ```
 
-#### Edit task priority
+#### Edit a task
 ```bash
 todo -e 2 high            # Change task #2 to HIGH priority
 todo --edit 5 low         # Change task #5 to LOW priority
+todo -e 3 "Buy oat milk"  # Rename task #3
+todo -e 3 high "Buy oat milk"   # Rename and change priority
+todo -e 3 Buy oat milk high     # Same: priority may be the first or the last word
 ```
 
 #### Remove a task
