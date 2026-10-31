@@ -9,6 +9,7 @@ A lightweight Linux command-line todo list application in modern C++. Manage tas
 - ✏️ Full CRUD operations (add, list, edit priority or description, remove, done)
 - 💾 Persistent JSON storage
 - 🎨 Color-coded output with clean formatting
+- ⌨️ Bash and zsh completion, including task IDs
 
 ## Quick Start
 
@@ -151,6 +152,18 @@ systemctl --user enable --now todo-notify.service
 ```
 It runs `todo -n` on login, screen unlock and resume from suspend (GNOME, needs `notify-send` and `gdbus`).
 
+#### Shell completion
+`sudo make install` also installs completion scripts for bash
+(`share/bash-completion/completions/todo`) and zsh (`share/zsh/site-functions/_todo`).
+They complete commands and flags, help topics after `todo -h`, priorities, and task IDs
+with their descriptions after `-d`, `-r`, `-e` and `-i`:
+```bash
+todo -d <TAB>
+1  Buy milk    2  Call mom
+```
+Open a new shell after installing. With bash this needs the `bash-completion` package;
+without installing, try it with `source contrib/todo-completion.bash`.
+
 ---
 ## Data Storage
 
@@ -258,6 +271,9 @@ todo-app/
 │   └── Storage.hpp
 ├── external/
 │   └── json.hpp          # nlohmann/json library
+├── contrib/
+│   ├── todo-completion.bash  # bash completion
+│   └── _todo                 # zsh completion
 ├── CMakeLists.txt
 └── README.md
 ```
