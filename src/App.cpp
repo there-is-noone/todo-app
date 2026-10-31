@@ -88,7 +88,9 @@ void App::printHelp(int argc,char* argv[]) const {
         "  todo -h [edit | e]\n"
         "  todo -h [notify | n]\n"
         "  todo -h [queue | q]\n"
-        "  todo -h [undo | u]\n\n";
+        "  todo -h [undo | u]\n\n"
+        "Data file:\n"
+        "  TODO_FILE=/path/tasks.json todo ...   Use another task file\n\n";
     }
     else {
         std::string command=argv[2];

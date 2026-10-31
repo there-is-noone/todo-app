@@ -125,6 +125,15 @@ static std::string describeChange(const std::vector<Task>& now, const std::vecto
 }
 
 JsonStorage::JsonStorage(const std::string& name) {
+    // TODO_FILE picks the task file directly and skips the lookup below
+    if (const char* custom = std::getenv("TODO_FILE"); custom && *custom) {
+        std::filesystem::path file(custom);
+        std::error_code ec;
+        if (file.has_parent_path()) std::filesystem::create_directories(file.parent_path(), ec);
+        FileName = file.string();
+        return;
+    }
+
     std::filesystem::path baseDir;
 
     try {

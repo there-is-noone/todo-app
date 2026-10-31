@@ -124,7 +124,19 @@ It runs `todo -n` on login, screen unlock and resume from suspend (GNOME, needs 
 ---
 ## Data Storage
 
-Tasks saved to `./.local/share/todo-app/tasks.json`:
+Tasks are saved as plain JSON. The file is chosen in this order:
+1. `$TODO_FILE`, if set (its directory is created when missing)
+2. `data/tasks.json` next to the `todo` binary, if that directory is writable
+3. `~/.local/share/todo-app/tasks.json`
+
+```bash
+TODO_FILE=~/work/tasks.json todo -l      # a separate list for work
+export TODO_FILE=~/Sync/todo/tasks.json  # keep the list in a synced folder
+```
+Every save writes a temp file and renames it over `tasks.json`, and the previous
+version is kept as `tasks.json.bak` (see `todo -u`).
+
+Example `tasks.json`:
 ```json
 [
   {"id": 1, "description": "Study", "priority": "high", "done": false},
