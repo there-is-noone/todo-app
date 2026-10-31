@@ -62,6 +62,9 @@ int App::run(int argc, char* argv[]) {
     else if (command=="--info" || command=="-i") {
         handleInfo(argc,argv);
     }
+    else if (command=="--count" || command=="-c") {
+        printCount();
+    }
     else if (command=="--ids") {
         // Hidden helper for shell completion
         printIds();
@@ -130,7 +133,8 @@ void App::printHelp(int argc,char* argv[]) {
         "  -e, --edit      Edit the priority or description of a task\n"
         "  -n, --notify    Popup with HIGH priority tasks (once a day)\n"
         "  -q, --queue     Add a checklist whose steps appear one by one\n"
-        "  -i, --info      Show all details of a task\n\n"
+        "  -i, --info      Show all details of a task\n"
+        "  -c, --count     Short pending count for a shell prompt\n\n"
         "More help:\n"
         "  todo -h [add | a]\n"
         "  todo -h [remove | r] \n"
@@ -141,7 +145,8 @@ void App::printHelp(int argc,char* argv[]) {
         "  todo -h [edit | e]\n"
         "  todo -h [notify | n]\n"
         "  todo -h [queue | q]\n"
-        "  todo -h [info | i]\n\n";
+        "  todo -h [info | i]\n"
+        "  todo -h [count | c]\n\n";
     }
     else {
         std::string command=argv[2];
@@ -318,9 +323,23 @@ void App::printHelp(int argc,char* argv[]) {
     "Example:\n"
     "todo -i 3\n";
         }
+        else if (command=="count" || command=="c") {
+            std::cout <<
+    "COUNT COMMAND\n"
+    "Usage:\n"
+    "todo -c\n"
+    "todo --count\n\n"
+    "Description:\n"
+    "Prints one short line for a shell prompt: the number of pending\n"
+    "HIGH priority tasks and of all pending tasks, e.g. 🔥2 ⏳7,\n"
+    "or ✅0 when nothing is pending. Queued steps that are not\n"
+    "revealed yet are not counted. The line has no colours.\n\n"
+    "Example (~/.bashrc):\n"
+    "PS1='[$(todo -c)] \\w \\$ '\n";
+        }
         else {
             error() << "Unknown help topic. Use:\n";
-            error() << "todo -h add|remove|list|search|archive|done|edit|notify|queue|info\n";
+            error() << "todo -h add|remove|list|search|archive|done|edit|notify|queue|info|count\n";
         }
     }
     }
@@ -645,6 +664,22 @@ void App::printIds() const {
     for (const auto& task : todo.getTasks()) {
         if (task.isHidden() || task.isArchived()) continue;
         std::cout << task.getId() << "\t" << task.getDescription() << "\n";
+    }
+}
+
+// "🔥<pending HIGH> ⏳<all pending>" or "✅0", without colours so it fits in a prompt
+void App::printCount() const {
+    int high = 0;
+    int pending = 0;
+    for (const auto& task : todo.getTasks()) {
+        if (task.isDone() || task.isHidden() || task.isArchived()) continue;
+        pending++;
+        if (task.getPriority() == Task::Priority::HIGH) high++;
+    }
+    if (pending == 0) {
+        std::cout << "✅0\n";
+    } else {
+        std::cout << "🔥" << high << " ⏳" << pending << "\n";
     }
 }
 

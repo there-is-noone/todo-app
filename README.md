@@ -122,6 +122,15 @@ The first `todo -n` of each day moves tasks finished on earlier days to the arch
 so `todo -l` only shows open tasks and the ones you finished today.
 `todo -d <id>` on an archived task marks it not done and brings it back to the list.
 
+#### Pending count for your shell prompt
+```bash
+todo -c                   # 🔥2 ⏳7  (pending HIGH, all pending), ✅0 if nothing is pending
+```
+One short line without colours, so it can go straight into a prompt, e.g. in `~/.bashrc`:
+```bash
+PS1='[$(todo -c)] \w \$ '
+```
+
 #### Daily popup with HIGH priority tasks
 ```bash
 todo -n                   # Desktop popup listing pending HIGH priority tasks

@@ -21,6 +21,7 @@ public:
     void handleQueue(int argc, char* argv[]);
     void handleInfo(int argc, char* argv[]);
     void printIds() const;
+    void printCount() const;
     // Error lines go to stderr and make the run exit with 1
     std::ostream& error();
     std::vector<int> parseIds(int argc, char* argv[], int first);
