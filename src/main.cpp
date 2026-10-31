@@ -11,6 +11,5 @@ int main(int argc, char* argv[]) {
     TodoList todo(storage);
 
     App app(todo);
-    app.run(argc,argv);
-    return 0;
+    return app.run(argc,argv);
 }

@@ -13,10 +13,10 @@
 
 extern char** environ;
 
-void App::run(int argc, char* argv[]) {
+int App::run(int argc, char* argv[]) {
     if (argc<2) {
         printDefault();
-        return;
+        return exitCode;
     }
     std::string command=argv[1];
     if (command=="--help" || command=="-h") {
@@ -34,14 +34,14 @@ void App::run(int argc, char* argv[]) {
     else if (command=="--remove" || command=="-r") {
         if (argc<3) {
             printDefault();
-            return;
+            return exitCode;
         }
         handleRemove(argc,argv);
     }
     else if (command=="--done" || command=="-d") {
         if (argc<3) {
             printDefault();
-            return;
+            return exitCode;
         }
         handleDone(argc,argv);
     }
@@ -57,13 +57,18 @@ void App::run(int argc, char* argv[]) {
     else {
         printDefault();
     }
-
+    return exitCode;
 }
 
-void App::printDefault() const {
-    std::cout<< "Unknown or missing command. Use --help" << std::endl;
+std::ostream& App::error() {
+    exitCode = 1;
+    return std::cerr;
 }
-void App::printHelp(int argc,char* argv[]) const {
+
+void App::printDefault() {
+    error() << "Unknown or missing command. Use --help" << std::endl;
+}
+void App::printHelp(int argc,char* argv[]) {
     if (argc<3){
         std::cout <<
         "Todo CLI - Help\n\n"
@@ -213,8 +218,8 @@ void App::printHelp(int argc,char* argv[]) const {
     "with an empty line.\n";
         }
         else {
-            std::cout << "Unknown help topic. Use:\n";
-            std::cout << "todo -h add|remove|list|archive|done|edit|notify|queue\n";
+            error() << "Unknown help topic. Use:\n";
+            error() << "todo -h add|remove|list|archive|done|edit|notify|queue\n";
         }
     }
     }
@@ -228,7 +233,7 @@ void App::handleAdd(int argc, char* argv[]) {
         std::getline(std::cin, description);
 
         if (description.empty()) {
-            std::cout << RED "❌ Description cannot be empty\n" RESET;
+            error() << RED "❌ Description cannot be empty\n" RESET;
             return;
         }
         std::cout << "Enter priority (low/medium/high) [default: low]: ";
@@ -290,11 +295,11 @@ void App::handleDone(int argc, char* argv[]) {
         id = std::stoi(argv[2]);
     }
     catch (const std::invalid_argument&) {
-        std::cout << RED "❌ Invalid ID: not a number\n" RESET;
+        error() << RED "❌ Invalid ID: not a number\n" RESET;
         return;
     }
     catch (const std::out_of_range&) {
-        std::cout << RED "❌ ID out of range\n" RESET;
+        error() << RED "❌ ID out of range\n" RESET;
         return;
     }
 
@@ -315,7 +320,7 @@ void App::handleDone(int argc, char* argv[]) {
             }
         }
     } else {
-        std::cout << RED "❌ No task with ID " << id << "\n" RESET;
+        error() << RED "❌ No task with ID " << id << "\n" RESET;
     }
 }
 
@@ -355,18 +360,18 @@ void App::handleQueue(int argc, char* argv[]) {
     bool interactive = isatty(STDIN_FILENO);
     if (name.empty()) {
         if (!interactive) {
-            std::cout << RED "❌ Usage: todo -q <name> [priority] < steps.txt\n" RESET;
+            error() << RED "❌ Usage: todo -q <name> [priority] < steps.txt\n" RESET;
             return;
         }
         std::cout << BLUE "📝 New Queue\n" RESET << "Enter queue name: ";
         std::getline(std::cin, name);
         if (name.empty()) {
-            std::cout << RED "❌ Queue name cannot be empty\n" RESET;
+            error() << RED "❌ Queue name cannot be empty\n" RESET;
             return;
         }
     }
     if (todo.queueTotal(name) > 0) {
-        std::cout << RED "❌ A queue named \"" << name << "\" already exists\n" RESET;
+        error() << RED "❌ A queue named \"" << name << "\" already exists\n" RESET;
         return;
     }
 
@@ -385,7 +390,7 @@ void App::handleQueue(int argc, char* argv[]) {
     }
 
     if (steps.empty()) {
-        std::cout << RED "❌ No steps given\n" RESET;
+        error() << RED "❌ No steps given\n" RESET;
         return;
     }
     todo.addQueue(name, priority, steps);
@@ -399,11 +404,11 @@ void App::handleRemove(int argc, char* argv[]) {
         id = std::stoi(argv[2]);
     }
     catch (const std::invalid_argument&) {
-        std::cout << RED "❌ Invalid ID: not a number\n" RESET;
+        error() << RED "❌ Invalid ID: not a number\n" RESET;
         return;
     }
     catch (const std::out_of_range&) {
-        std::cout << RED "❌ ID out of range\n" RESET;
+        error() << RED "❌ ID out of range\n" RESET;
         return;
     }
 
@@ -411,13 +416,13 @@ void App::handleRemove(int argc, char* argv[]) {
         todo.removeTask(id);
         std::cout << GREEN "✅ Task removed\n" RESET;
     } else {
-        std::cout << RED "❌ No task with ID " << id << "\n" RESET;
+        error() << RED "❌ No task with ID " << id << "\n" RESET;
     }
 }
 
 void App::handleEdit(int argc, char* argv[]) {
     if (argc < 4) {
-        std::cout << RED "❌ Usage: todo -e <id> <priority>\n" RESET;
+        error() << RED "❌ Usage: todo -e <id> <priority>\n" RESET;
         return;
     }
     int id;
@@ -425,22 +430,22 @@ void App::handleEdit(int argc, char* argv[]) {
         id = std::stoi(argv[2]);
     }
     catch (const std::invalid_argument&) {
-        std::cout << RED "❌ Invalid ID: not a number\n" RESET;
+        error() << RED "❌ Invalid ID: not a number\n" RESET;
         return;
     }
     catch (const std::out_of_range&) {
-        std::cout << RED "❌ ID out of range\n" RESET;
+        error() << RED "❌ ID out of range\n" RESET;
         return;
     }
 
     std::string priorityStr = argv[3];
     if (priorityStr != "low" && priorityStr != "medium" && priorityStr != "high") {
-        std::cout << RED "❌ Invalid priority. Use: low, medium, high\n" RESET;
+        error() << RED "❌ Invalid priority. Use: low, medium, high\n" RESET;
         return;
     }
 
     if (!todo.findById(id)) {
-        std::cout << RED "❌ No task with ID " << id << "\n" RESET;
+        error() << RED "❌ No task with ID " << id << "\n" RESET;
         return;
     }
 
@@ -499,13 +504,13 @@ void App::handleNotify(int argc, char* argv[]) {
         pid_t pid;
         if (posix_spawnp(&pid, "notify-send", nullptr, nullptr,
                          const_cast<char* const*>(args), environ) != 0) {
-            std::cout << RED "❌ Could not run notify-send (is libnotify installed?)\n" RESET;
+            error() << RED "❌ Could not run notify-send (is libnotify installed?)\n" RESET;
             return;
         }
         int status = 0;
         waitpid(pid, &status, 0);
         if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-            std::cout << RED "❌ notify-send failed\n" RESET;
+            error() << RED "❌ notify-send failed\n" RESET;
             return;
         }
     }
