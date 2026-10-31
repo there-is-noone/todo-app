@@ -105,6 +105,8 @@ void App::printHelp(int argc,char* argv[]) {
 "Arguments:\n"
 "description   The task description (can contain spaces)\n"
 "priority      Optional: low, medium, high (default: low)\n"
+"              Only the last word counts as priority, so\n"
+"              todo -a call high school adds \"call high school\".\n\n"
 
 "Examples:\n"
 "todo -a \"Buy milk\"\n"
@@ -209,7 +211,8 @@ void App::printHelp(int argc,char* argv[]) {
     "Leading \"- \", \"- [ ] \", \"* \" and \"1. \" markers are removed.\n\n"
     "Arguments:\n"
     "name      Name of the queue (can contain spaces)\n"
-    "priority  Optional: low, medium, high (default: low)\n\n"
+    "priority  Optional: low, medium, high (default: low),\n"
+    "          only taken from the last argument\n\n"
     "Examples:\n"
     "todo -q \"Phase 0 setup\" medium < phase0.txt\n"
     "printf 'Step one\\nStep two\\n' | todo -q Demo high\n\n"
@@ -228,6 +231,44 @@ static bool isBlank(const std::string& str) {
     return str.find_first_not_of(" \t\r\n") == std::string::npos;
 }
 
+static std::string toLower(std::string str) {
+    for (auto& c : str) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return str;
+}
+
+// True for low, medium or high in any case
+static bool isPriorityWord(const std::string& arg) {
+    std::string word = toLower(arg);
+    return word == "low" || word == "medium" || word == "high";
+}
+
+struct DescriptionArgs {
+    std::string description;
+    bool hasPriority = false;
+    Task::Priority priority = Task::Priority::LOW;
+};
+
+// Joins argv[first..] into a description. Only the last argument (or the first one when
+// allowFirst is set) is taken as priority, so "call high school" stays a plain description.
+static DescriptionArgs splitDescription(int argc, char* argv[], int first, bool allowFirst=false) {
+    DescriptionArgs result;
+    int last = argc - 1;
+    if (first <= last && isPriorityWord(argv[last])) {
+        result.hasPriority = true;
+        result.priority = Task::parsePriority(toLower(argv[last]));
+        last--;
+    } else if (allowFirst && first <= last && isPriorityWord(argv[first])) {
+        result.hasPriority = true;
+        result.priority = Task::parsePriority(toLower(argv[first]));
+        first++;
+    }
+    for (int i = first; i <= last; i++) {
+        if (!result.description.empty()) result.description += " ";
+        result.description += argv[i];
+    }
+    return result;
+}
+
 void App::handleAdd(int argc, char* argv[]) {
     std::string description;
     std::string prioritystring;
@@ -244,18 +285,12 @@ void App::handleAdd(int argc, char* argv[]) {
         std::cout << "Enter priority (low/medium/high) [default: low]: ";
         std::getline(std::cin, prioritystring);
         if (!prioritystring.empty()) {
-            priority = Task::parsePriority(prioritystring);
+            priority = Task::parsePriority(toLower(prioritystring));
         }
     } else {
-        for (int i = 2; i < argc; i++) {
-            std::string arg = argv[i];
-            if (arg == "low" || arg == "medium" || arg == "high") {
-                priority = Task::parsePriority(arg);
-            } else {
-                if (!description.empty()) description += " ";
-                description += arg;
-            }
-        }
+        DescriptionArgs args = splitDescription(argc, argv, 2);
+        description = args.description;
+        priority = args.priority;
         // Only priority words (e.g. todo -a high) leave no description
         if (isBlank(description)) {
             error() << RED "❌ Description cannot be empty\n" RESET;
@@ -355,27 +390,19 @@ static std::string cleanStep(std::string line) {
 }
 
 void App::handleQueue(int argc, char* argv[]) {
-    std::string name;
-    Task::Priority priority = Task::Priority::LOW;
-    for (int i = 2; i < argc; i++) {
-        std::string arg = argv[i];
-        if (arg == "low" || arg == "medium" || arg == "high") {
-            priority = Task::parsePriority(arg);
-        } else {
-            if (!name.empty()) name += " ";
-            name += arg;
-        }
-    }
+    DescriptionArgs args = splitDescription(argc, argv, 2);
+    std::string name = args.description;
+    Task::Priority priority = args.priority;
 
     bool interactive = isatty(STDIN_FILENO);
-    if (name.empty()) {
+    if (isBlank(name)) {
         if (!interactive) {
             error() << RED "❌ Usage: todo -q <name> [priority] < steps.txt\n" RESET;
             return;
         }
         std::cout << BLUE "📝 New Queue\n" RESET << "Enter queue name: ";
         std::getline(std::cin, name);
-        if (name.empty()) {
+        if (isBlank(name)) {
             error() << RED "❌ Queue name cannot be empty\n" RESET;
             return;
         }

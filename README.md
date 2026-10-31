@@ -38,6 +38,7 @@ todo -h
 todo -a "Buy groceries"              # Default: LOW priority
 todo -a "Finish project" high        # HIGH priority
 todo -a "Read a book" medium         # MEDIUM priority
+todo -a call high school             # "call high school", LOW: only the last word counts as priority
  
 # Interactive mode (no arguments)
 todo -a
@@ -83,6 +84,7 @@ todo -q "Phase 0 setup" medium < steps.txt     # One step per line
 printf 'Create venv\nRun simulator\n' | todo -q Demo high
 todo -l --queued (-q)     # Also show steps that are not revealed yet
 ```
+As with `todo -a`, only the last argument is taken as priority.
 Only the current step of a queue is shown. Marking it done with `todo -d <id>`
 reveals the next one, until the queue is complete. Leading `- `, `- [ ] `, `* ` and `1. `
 markers are stripped, so a pasted checklist works as-is.
