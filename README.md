@@ -79,6 +79,10 @@ todo -d 2-5               # A range of IDs
 Each ID gets its own result line. Unknown IDs are reported, the others are still
 applied, and the exit code is 1 if any ID failed.
 
+Without an ID, `todo -d`, `todo -r` and `todo -i` let you pick from the pending tasks:
+with [fzf](https://github.com/junegunn/fzf) if it is installed (TAB selects several),
+otherwise from a numbered list and an `Enter ID:` prompt.
+
 #### Task details
 ```bash
 todo -i 3                 # Full record of task #3 (also --info)

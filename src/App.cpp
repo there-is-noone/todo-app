@@ -10,6 +10,8 @@
 #include <vector>
 #include <cctype>
 #include <algorithm>
+#include <csignal>
+#include <sstream>
 #include "colors.hpp"
 
 extern char** environ;
@@ -37,17 +39,9 @@ int App::run(int argc, char* argv[]) {
         handleAdd(argc,argv);
     }
     else if (command=="--remove" || command=="-r") {
-        if (argc<3) {
-            printDefault();
-            return exitCode;
-        }
         handleRemove(argc,argv);
     }
     else if (command=="--done" || command=="-d") {
-        if (argc<3) {
-            printDefault();
-            return exitCode;
-        }
         handleDone(argc,argv);
     }
     else if (command=="--edit" || command=="-e") {
@@ -114,6 +108,126 @@ std::vector<int> App::parseIds(int argc, char* argv[], int first) {
     return ids;
 }
 
+// IDs from the command line; without any, the user picks them when stdin is a terminal
+std::vector<int> App::idsOrPick(int argc, char* argv[], const char* flag) {
+    if (argc >= 3) return parseIds(argc, argv, 2);
+    if (!isatty(STDIN_FILENO)) {
+        error() << RED "❌ Usage: todo " << flag << " <id>...\n" RESET;
+        return {};
+    }
+    return pickIds();
+}
+
+static bool inPath(const std::string& program) {
+    const char* path = std::getenv("PATH");
+    if (!path) return false;
+    std::stringstream dirs(path);
+    std::string dir;
+    while (std::getline(dirs, dir, ':')) {
+        if (dir.empty()) dir = ".";
+        if (access((dir + "/" + program).c_str(), X_OK) == 0) return true;
+    }
+    return false;
+}
+
+// Runs fzf on the given lines and collects the chosen ones. Spawned directly (no shell),
+// like notify-send. Returns fzf's exit code (0 = picked), or -1 if it could not be started.
+static int runFzf(const std::string& lines, std::string& picked) {
+    int in[2], out[2];
+    if (pipe(in) != 0) return -1;
+    if (pipe(out) != 0) {
+        close(in[0]);
+        close(in[1]);
+        return -1;
+    }
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_adddup2(&actions, in[0], STDIN_FILENO);
+    posix_spawn_file_actions_adddup2(&actions, out[1], STDOUT_FILENO);
+    posix_spawn_file_actions_addclose(&actions, in[0]);
+    posix_spawn_file_actions_addclose(&actions, in[1]);
+    posix_spawn_file_actions_addclose(&actions, out[0]);
+    posix_spawn_file_actions_addclose(&actions, out[1]);
+    const char* args[] = {"fzf", "--multi", "--prompt=Task> ",
+                          "--header=TAB selects several, ENTER confirms", nullptr};
+    pid_t pid;
+    int spawned = posix_spawnp(&pid, "fzf", &actions, nullptr, const_cast<char* const*>(args), environ);
+    posix_spawn_file_actions_destroy(&actions);
+    close(in[0]);
+    close(out[1]);
+    if (spawned != 0) {
+        close(in[1]);
+        close(out[0]);
+        return -1;
+    }
+
+    // fzf may quit before reading everything, which must not kill us with SIGPIPE
+    std::signal(SIGPIPE, SIG_IGN);
+    size_t written = 0;
+    while (written < lines.size()) {
+        ssize_t n = write(in[1], lines.data() + written, lines.size() - written);
+        if (n <= 0) break;
+        written += n;
+    }
+    close(in[1]);
+
+    char buffer[4096];
+    ssize_t n;
+    while ((n = read(out[0], buffer, sizeof(buffer))) > 0) picked.append(buffer, n);
+    close(out[0]);
+
+    int status = 0;
+    waitpid(pid, &status, 0);
+    return WIFEXITED(status) ? WEXITSTATUS(status) : 1;
+}
+
+// Lets the user choose pending tasks with fzf, or from a numbered list when fzf is missing
+std::vector<int> App::pickIds() {
+    std::string lines;
+    for (const auto& task : todo.getTasks()) {
+        if (task.isDone() || task.isHidden() || task.isArchived()) continue;
+        lines += std::to_string(task.getId()) + "\t" + task.getDescription() + "\n";
+    }
+    if (lines.empty()) {
+        std::cout << CYAN "📋 No pending tasks\n" RESET;
+        return {};
+    }
+
+    std::string input;
+    int fzf = inPath("fzf") ? runFzf(lines, input) : -1;
+    if (fzf == -1) {
+        std::cout << BLUE "📋 Pending tasks:\n" RESET;
+        for (const auto& task : todo.getTasks()) {
+            if (task.isDone() || task.isHidden() || task.isArchived()) continue;
+            std::cout << "  #" << task.getId() << " " << task.getDescription() << "\n";
+        }
+        std::cout << "Enter ID: ";
+        std::getline(std::cin, input);
+    } else if (fzf != 0) {
+        // Picker closed without a choice
+        exitCode = 1;
+        return {};
+    }
+
+    // fzf prints whole "id<TAB>description" lines, the prompt takes IDs and ranges
+    std::vector<std::string> words;
+    std::stringstream lineStream(input);
+    std::string line;
+    while (std::getline(lineStream, line)) {
+        if (fzf == 0) line = line.substr(0, line.find('\t'));
+        std::stringstream wordStream(line);
+        std::string word;
+        while (wordStream >> word) words.push_back(word);
+    }
+    if (words.empty()) {
+        exitCode = 1;
+        return {};
+    }
+    std::vector<char*> args;
+    for (auto& word : words) args.push_back(word.data());
+    return parseIds(static_cast<int>(args.size()), args.data(), 0);
+}
+
 void App::printDefault() {
     error() << "Unknown or missing command. Use --help" << std::endl;
 }
@@ -178,7 +292,9 @@ void App::printHelp(int argc,char* argv[]) {
                 "Description:\n"
                 "Removes one or more tasks by their ID.\n\n"
                 "Arguments:\n"
-                "id    The ID of a task to remove, or a range like 2-5\n\n"
+                "id    The ID of a task to remove, or a range like 2-5\n"
+                "Without an ID, in a terminal, pick the tasks with fzf (if it is\n"
+                "installed) or type them at the Enter ID: prompt.\n\n"
                 "Examples:\n"
                 "todo -r 3\n"
                 "todo -r 1 4 7\n"
@@ -246,7 +362,9 @@ void App::printHelp(int argc,char* argv[]) {
                 "Marks one or more tasks as completed (a done task is marked\n"
                 "as not done again). IDs are handled in the given order.\n\n"
                 "Arguments:\n"
-                "id    The ID of a task to mark as done, or a range like 2-5\n\n"
+                "id    The ID of a task to mark as done, or a range like 2-5\n"
+                "Without an ID, in a terminal, pick the tasks with fzf (if it is\n"
+                "installed) or type them at the Enter ID: prompt.\n\n"
                 "Examples:\n"
                 "todo -d 2\n"
                 "todo -d 1 4 7\n"
@@ -319,7 +437,9 @@ void App::printHelp(int argc,char* argv[]) {
     "status (TODO, DONE, QUEUED or ARCHIVED), queue name and step\n"
     "if it belongs to a queue, and the date it was done.\n\n"
     "Arguments:\n"
-    "id    The ID of a task, or a range like 2-5\n\n"
+    "id    The ID of a task, or a range like 2-5\n"
+    "Without an ID, in a terminal, pick the task with fzf (if it is\n"
+    "installed) or type it at the Enter ID: prompt.\n\n"
     "Example:\n"
     "todo -i 3\n";
         }
@@ -466,7 +586,7 @@ void App::handleList(int argc,char* argv[], bool showArchived, int first) {
 
 void App::handleDone(int argc, char* argv[]) {
     // IDs are handled in the given order, so "todo -d 5 6" can finish two steps of a queue
-    for (int id : parseIds(argc, argv, 2)) {
+    for (int id : idsOrPick(argc, argv, "-d")) {
         if (!todo.findById(id)) {
             error() << RED "❌ No task with ID " << id << "\n" RESET;
             continue;
@@ -557,7 +677,7 @@ void App::handleQueue(int argc, char* argv[]) {
 }
 
 void App::handleRemove(int argc, char* argv[]) {
-    for (int id : parseIds(argc, argv, 2)) {
+    for (int id : idsOrPick(argc, argv, "-r")) {
         Task* task = todo.findById(id);
         if (!task) {
             error() << RED "❌ No task with ID " << id << "\n" RESET;
@@ -619,12 +739,8 @@ void App::handleEdit(int argc, char* argv[]) {
 }
 
 void App::handleInfo(int argc, char* argv[]) {
-    if (argc < 3) {
-        error() << RED "❌ Usage: todo -i <id>...\n" RESET;
-        return;
-    }
     bool first = true;
-    for (int id : parseIds(argc, argv, 2)) {
+    for (int id : idsOrPick(argc, argv, "-i")) {
         const Task* task = todo.findById(id);
         if (!task) {
             error() << RED "❌ No task with ID " << id << "\n" RESET;

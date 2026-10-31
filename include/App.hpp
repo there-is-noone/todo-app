@@ -25,6 +25,8 @@ public:
     // Error lines go to stderr and make the run exit with 1
     std::ostream& error();
     std::vector<int> parseIds(int argc, char* argv[], int first);
+    std::vector<int> idsOrPick(int argc, char* argv[], const char* flag);
+    std::vector<int> pickIds();
     TodoList& todo;
     int exitCode = 0;
 };
