@@ -3,6 +3,7 @@
 #include "JsonStorage.hpp"
 #include "Task.hpp"
 #include <fstream>
+#include <sstream>
 #include <filesystem>
 #include <cstdlib>
 #include "json.hpp"
@@ -99,7 +100,6 @@ std::vector<Task> JsonStorage::load() {
 }
 
 void JsonStorage::save(const std::vector<Task>& Tasks) {
-    std::ofstream WriteFile(FileName);
     json j=json::array();
     for (const Task& Task : Tasks) {
         json item={
@@ -118,7 +118,41 @@ void JsonStorage::save(const std::vector<Task>& Tasks) {
         if (Task.isArchived()) item["archived"]=true;
         j.push_back(item);
     }
-    WriteFile<< j.dump(4);
+    std::string content = j.dump(4);
+
+    // Saving the same data again keeps the file and its backup untouched
+    {
+        std::ifstream current(FileName, std::ios::binary);
+        if (current.is_open()) {
+            std::stringstream old;
+            old << current.rdbuf();
+            if (old.str() == content) return;
+        }
+    }
+
+    // One level of backup, restored by todo -u
+    std::error_code ec;
+    if (std::filesystem::exists(FileName, ec)) {
+        std::filesystem::copy_file(FileName, FileName + ".bak",
+                                   std::filesystem::copy_options::overwrite_existing, ec);
+    }
+
+    // Write a temp file and rename it over the real one, so a crash never leaves half a file
+    std::string tmpName = FileName + ".tmp";
+    {
+        std::ofstream WriteFile(tmpName, std::ios::trunc);
+        WriteFile << content;
+        WriteFile.close();
+        if (!WriteFile) {
+            std::filesystem::remove(tmpName, ec);
+            throw StorageError("Could not save " + FileName + ": cannot write " + tmpName);
+        }
+    }
+    std::filesystem::rename(tmpName, FileName, ec);
+    if (ec) {
+        std::filesystem::remove(tmpName, ec);
+        throw StorageError("Could not save " + FileName + ": " + ec.message());
+    }
 }
 
 JsonStorage::~JsonStorage() =default;
