@@ -181,8 +181,10 @@ without installing, try it with `source contrib/todo-completion.bash`.
 
 Tasks are saved as plain JSON. The file is chosen in this order:
 1. `$TODO_FILE`, if set (its directory is created when missing)
-2. `data/tasks.json` next to the `todo` binary, if that directory is writable
-3. `~/.local/share/todo-app/tasks.json`
+2. `~/.local/share/todo-app/tasks.json`, if it already exists - so a rebuilt or
+   newly installed binary keeps your existing list
+3. `data/tasks.json` next to the `todo` binary, if that directory is writable
+4. `~/.local/share/todo-app/tasks.json`
 
 ```bash
 TODO_FILE=~/work/tasks.json todo -l      # a separate list for work

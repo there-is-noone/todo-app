@@ -505,6 +505,20 @@ g_C8() {
     run -l
     hasnt C8.default.untouched "$OUT" "Hello there"
     hasnt C8.default.file "$(cat "$DATA" 2>/dev/null)" "Hello there"
+    # an existing list in HOME is preferred over data/ next to the binary
+    local h=$S/home/.local/share/todo-app/tasks.json
+    mkdir -p "$(dirname "$h")"
+    printf '%s\n' '[{"id":1,"description":"Home list","priority":"low","done":false}]' >"$h"
+    printf '[]\n' >"$DATA"
+    run -l
+    has C8.home.preferred "$OUT" "Home list"
+    run -a From new build
+    eq C8.home.written "From new build" "$(jq -r '.[] | select(.id==2) | .description' "$h" 2>/dev/null)"
+    eq C8.home.bin-data-untouched "[]" "$(tr -d '[:space:]' <"$DATA")"
+    XENV=(TODO_FILE="$f")
+    run -l
+    hasnt C8.home.env-wins "$OUT" "Home list"
+    XENV=()
     run -h
     has C8.help.footer "$OUT" "TODO_FILE"
     readme_has C8.readme "TODO_FILE"

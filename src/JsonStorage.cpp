@@ -134,6 +134,19 @@ JsonStorage::JsonStorage(const std::string& name) {
         return;
     }
 
+    // An existing list in the home directory wins, so a freshly built
+    // binary keeps using it instead of starting an empty data/tasks.json
+    const char* home = std::getenv("HOME");
+    if (home && *home) {
+        auto homeFile = std::filesystem::path(home) / ".local/share/todo-app/tasks.json";
+        std::error_code ec;
+        if (std::filesystem::exists(homeFile, ec) ||
+            std::filesystem::exists(homeFile.string() + ".bak", ec)) {
+            FileName = homeFile.string();
+            return;
+        }
+    }
+
     std::filesystem::path baseDir;
 
     try {
@@ -155,7 +168,6 @@ JsonStorage::JsonStorage(const std::string& name) {
         }
 
     } catch (...) {
-        const char* home = std::getenv("HOME");
         if (!home) {
             throw std::runtime_error("Cannot determine HOME directory");
         }
