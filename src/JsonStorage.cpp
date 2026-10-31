@@ -21,8 +21,56 @@ std::filesystem::path getExecutablePath() {
     return std::filesystem::path(buffer);
 }
 
-
 using json=nlohmann::json;
+
+// Turns a json error into a short reason like "invalid JSON at line 3, column 1"
+static std::string shortReason(const json::exception& e) {
+    std::string reason = e.what();
+    if (reason.rfind("[json.exception.", 0) == 0) {
+        size_t end = reason.find("] ");
+        if (end != std::string::npos) reason = reason.substr(end + 2);
+    }
+    size_t at = reason.find("at line ");
+    if (at != std::string::npos) {
+        size_t colon = reason.find(':', at);
+        return "invalid JSON " + reason.substr(at, colon == std::string::npos ? std::string::npos : colon - at);
+    }
+    return reason;
+}
+
+// Reads a task file; a broken file throws StorageError and is never overwritten
+static std::vector<Task> readTasks(const std::string& path) {
+    std::vector<Task> tasks;
+    try {
+        std::ifstream file(path);
+        if (!file.is_open()) {
+            throw StorageError("Could not read " + path + ": cannot open file", true);
+        }
+        json j;
+        file >> j;
+        if (!j.is_array()) {
+            throw StorageError("Could not read " + path + ": expected a list of tasks", true);
+        }
+
+        for (const auto& i : j) {
+            tasks.emplace_back(Task(
+                i.at("id").get<int>(),
+                i.at("description").get<std::string>(),
+                Task::parsePriority(i.at("priority").get<std::string>()),
+                i.at("done").get<bool>(),
+                i.value("queue", std::string()),
+                i.value("step", 0),
+                i.value("hidden", false),
+                i.value("archived", false),
+                i.value("doneDate", std::string())
+            ));
+        }
+    } catch (const json::exception& e) {
+        throw StorageError("Could not read " + path + ": " + shortReason(e), true);
+    }
+    return tasks;
+}
+
 JsonStorage::JsonStorage(const std::string& name) {
     std::filesystem::path baseDir;
 
@@ -62,6 +110,10 @@ std::vector<Task> JsonStorage::load() {
 
     // 🔥 If file doesn't exist → create it
     if (!file.is_open()) {
+        std::error_code ec;
+        if (std::filesystem::exists(FileName, ec)) {
+            throw StorageError("Could not read " + FileName + ": cannot open file", true);
+        }
         std::ofstream create(FileName);
         create << "[]";
         create.close();
@@ -77,26 +129,17 @@ std::vector<Task> JsonStorage::load() {
         return {};
     }
 
-    json j;
-    file >> j;
+    file.close();
+    return readTasks(FileName);
+}
 
-    std::vector<Task> tasks;
+const std::string& JsonStorage::path() const {
+    return FileName;
+}
 
-    for (auto& i : j) {
-        tasks.emplace_back(Task(
-            i["id"],
-            i["description"],
-            Task::parsePriority(i["priority"].get<std::string>()),
-            i["done"],
-            i.value("queue", std::string()),
-            i.value("step", 0),
-            i.value("hidden", false),
-            i.value("archived", false),
-            i.value("doneDate", std::string())
-        ));
-    }
-
-    return tasks;
+bool JsonStorage::hasBackup() const {
+    std::error_code ec;
+    return std::filesystem::exists(FileName + ".bak", ec);
 }
 
 void JsonStorage::save(const std::vector<Task>& Tasks) {
